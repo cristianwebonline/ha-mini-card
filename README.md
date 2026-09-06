@@ -4,7 +4,7 @@ Tessera **piccola** e **personalizzabile** per Home Assistant: un dispositivo o 
 
 ## Pacchetto icone
 
-9 icone animate curate a mano (niente icone mdi piatte):
+14 icone animate curate a mano (niente icone mdi piatte, niente emoji — sono disegni SVG con gradienti e luci vere):
 
 | Icona | Uso tipico |
 |---|---|
@@ -13,18 +13,25 @@ Tessera **piccola** e **personalizzabile** per Home Assistant: un dispositivo o 
 | 🛋️ Soggiorno | TV, salotto |
 | 🛏️ Camera da letto | luce/presa camera |
 | 🫖 Cucina | bollitore, piccoli elettrodomestici |
+| 🔥 Forno | forno da incasso |
+| ❄️ Frigorifero | frigo con LED dispenser |
 | 🚿 Bagno | boiler, scaldabagno, luce bagno |
 | 💡 Ufficio/studio | lampada da scrivania |
 | 🪴 Giardino/esterno | irrigazione, luci esterne |
 | 📷 Sicurezza | telecamera, allarme |
+| 🚧 Cancello | cancello/cancelletto motorizzato |
+| 🌀 Ventilatore | ventilatore (le pale girano quando è acceso) |
+| 🤖 Aspirapolvere | robot aspirapolvere |
 
-Ogni icona si accende/anima quando il dispositivo collegato è acceso (o quando il sensore di potenza supera la soglia impostata).
+Ogni icona si accende/anima quando il dispositivo collegato è acceso (o quando il sensore di potenza supera la soglia impostata). Scrivendo il nome del dispositivo (es. "Forno") l'icona giusta viene proposta da sola.
+
+Nell'editor l'icona si sceglie da una **griglia con l'anteprima vera** di ogni disegno (non un menu a tendina con emoji), e i sensori si scelgono con un **campo di ricerca che filtra** mentre scrivi (utile con centinaia di sensori in HA).
 
 ## Cosa si configura
 
 - Nome
-- Icona (una delle 9 sopra)
-- Presa/interruttore/luce da accendere (opzionale — supporta `switch.`, `light.`, `input_boolean.`)
+- Icona (una delle 14 sopra, scelta dalla griglia con anteprima)
+- Presa/interruttore/luce da accendere (opzionale — supporta `switch.`, `light.`, `input_boolean.`, cercabile)
 - Sensore di potenza (opzionale — abilita anche lo storico consumi al tocco della card)
 - Sensore di temperatura e umidità (opzionali)
 - Soglie freddo/caldo (per il colore del termometro)
