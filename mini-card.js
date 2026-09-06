@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.0.0";
+const MC_VERSION = "1.0.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -17,6 +17,28 @@ const MC_DEFAULTS = {
   power: "", energy: "", switch: "", temp: "", humidity: "",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
 };
+
+// Suggerisce l'icona dal nome che l'utente sta scrivendo (es. "Forno" → 🫖
+// cucina). Solo un suggerimento: se l'utente sceglie un'icona a mano, non
+// viene più toccata (vedi _iconManuallySet nell'editor).
+const MC_ICON_KEYWORDS = [
+  ["kitchen", ["forno", "cucina", "bollitore", "microonde", "tostapane", "friggitrice", "piastra", "caffè", "caffe", "frullatore", "impastatrice", "spremi"]],
+  ["bathroom", ["bagno", "doccia", "vasca", "boiler", "scaldabagno", "phon", "asciugacapelli"]],
+  ["office", ["ufficio", "studio", "scrivania", "stampante", "monitor"]],
+  ["garden", ["giardino", "esterno", "balcone", "irrigazione", "pergola", "terrazzo", "cancello", "cancelletto", "orto"]],
+  ["security", ["telecamera", "sicurezza", "allarme", "videocamera", "cam"]],
+  ["livingroom", ["soggiorno", "salotto", "televisione", " tv", "tv ", "divano"]],
+  ["bedroom", ["camera", "letto", "comodino", "armadio"]],
+  ["climate", ["clima", "termostato", "condizionatore", "climatizzatore", "temperatura"]],
+];
+function mcSuggestIcon(name) {
+  const n = ` ${(name || "").toLowerCase().trim()} `;
+  if (n.trim() === "") return null;
+  for (const [icon, words] of MC_ICON_KEYWORDS) {
+    if (words.some(w => n.includes(w))) return icon;
+  }
+  return null;
+}
 
 // Impedisce a librerie tipo "hass-swipe-navigation" di leggere un tocco dentro
 // la card come uno swipe di cambio-vista. In modalità modifica dashboard
@@ -578,13 +600,30 @@ customElements.define("mini-card", MiniCard);
 // Editor
 // ===========================================================================
 class MiniCardEditor extends HTMLElement {
+  // HA richiama setConfig() sull'editor anche quando il cambiamento arriva
+  // dall'editor stesso (il giro config-changed → HA → setConfig di ritorno).
+  // Se in quel caso rifacciamo innerHTML da capo, l'input perde il fuoco a
+  // ogni carattere digitato — su telefono si vede la tastiera che si chiude
+  // e riapre a ogni lettera. _internalChange marca quei giri di ritorno e
+  // salta il ridisegno: il DOM (e il fuoco) restano quelli che l'utente sta
+  // già usando.
   setConfig(config) {
-    this._config = Object.assign({}, MC_DEFAULTS, config || {});
+    const merged = Object.assign({}, MC_DEFAULTS, config || {});
+    if (this._internalChange) {
+      this._internalChange = false;
+      this._config = merged;
+      return;
+    }
+    this._config = merged;
+    // Se l'icona attuale è già diversa da quella che il nome suggerirebbe
+    // (e non è il default "generic"), trattiamola come scelta a mano
+    // dall'utente: digitare altro nel nome non gliela deve più cambiare.
+    this._iconManuallySet = merged.icon_type !== "generic" && merged.icon_type !== mcSuggestIcon(merged.name);
     this._render();
   }
-  set hass(h) { this._hass = h; if (h && this._config) this._render(); }
+  set hass(h) { this._hass = h; if (h && this._config && !this._built) { this._render(); this._built = true; } }
 
-  _emit() { this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true })); }
+  _emit() { this._internalChange = true; this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true })); }
   _set(key, val) { this._config = Object.assign({}, this._config, { [key]: val }); this._emit(); }
 
   _opts(domainPrefixes, sel) {
@@ -643,11 +682,22 @@ class MiniCardEditor extends HTMLElement {
             <option value="14"${c.storico_giorni == 14 ? " selected" : ""}>14 giorni</option>
             <option value="30"${c.storico_giorni == 30 ? " selected" : ""}>30 giorni</option></select></div>
       </div>
-      <div class="note">💡 Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Tocca la card per vedere lo storico consumi (serve il sensore di potenza); il badge on/off accende/spegne direttamente.</div>
+      <div class="note">💡 Scrivendo il nome (es. "Forno", "Bagno", "Giardino") l'icona giusta viene suggerita da sola — se la cambi a mano dal menu, resta quella scelta. Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Tocca la card per vedere lo storico consumi (serve il sensore di potenza); il badge on/off accende/spegne direttamente.</div>
     </div>`;
     const on = (id, ev, fn) => { const el = this.querySelector(id); if (el) el.addEventListener(ev, fn); };
-    on("#f_name", "input", e => this._set("name", e.target.value));
-    on("#f_icontype", "change", e => this._set("icon_type", e.target.value));
+    on("#f_name", "input", e => {
+      const name = e.target.value;
+      const suggestion = mcSuggestIcon(name);
+      if (suggestion && !this._iconManuallySet && suggestion !== this._config.icon_type) {
+        this._config = Object.assign({}, this._config, { name, icon_type: suggestion });
+        const sel = this.querySelector("#f_icontype");
+        if (sel) sel.value = suggestion;
+        this._emit();
+      } else {
+        this._set("name", name);
+      }
+    });
+    on("#f_icontype", "change", e => { this._iconManuallySet = true; this._set("icon_type", e.target.value); });
     on("#f_switch", "change", e => this._set("switch", e.target.value));
     on("#f_power", "change", e => this._set("power", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
