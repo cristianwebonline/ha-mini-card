@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.1.0";
+const MC_VERSION = "1.2.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -24,7 +24,8 @@ const MC_ICON_LABELS = {
   generic: "Generica", climate: "Clima", livingroom: "Soggiorno", bedroom: "Camera",
   kitchen: "Cucina", oven: "Forno", fridge: "Frigorifero", bathroom: "Bagno",
   office: "Ufficio", garden: "Giardino", security: "Sicurezza", gate: "Cancello",
-  fan: "Ventilatore", vacuum: "Aspirapolvere",
+  fan: "Ventilatore", vacuum: "Aspirapolvere", washer: "Lavatrice", dryer: "Asciugatrice",
+  dishwasher: "Lavastoviglie", tv: "TV", router: "Router", alarm: "Allarme",
 };
 
 // Suggerisce l'icona dal nome che l'utente sta scrivendo (es. "Forno" → 🔥
@@ -36,6 +37,9 @@ const MC_ICON_LABELS = {
 const MC_ICON_KEYWORDS = [
   ["oven", ["forno"]],
   ["fridge", ["frigo", "frigorifero"]],
+  ["washer", ["lavatrice"]],
+  ["dryer", ["asciugatrice"]],
+  ["dishwasher", ["lavastoviglie", "lavapiatti"]],
   ["kitchen", ["cucina", "bollitore", "microonde", "tostapane", "friggitrice", "piastra", "caffè", "caffe", "frullatore", "impastatrice", "spremi"]],
   ["bathroom", ["bagno", "doccia", "vasca", "boiler", "scaldabagno", "phon", "asciugacapelli"]],
   ["office", ["ufficio", "studio", "scrivania", "stampante", "monitor"]],
@@ -43,11 +47,44 @@ const MC_ICON_KEYWORDS = [
   ["gate", ["cancello", "cancelletto", "portone"]],
   ["fan", ["ventilatore", "ventola"]],
   ["vacuum", ["aspirapolvere", "robot"]],
-  ["security", ["telecamera", "sicurezza", "allarme", "videocamera", "cam"]],
-  ["livingroom", ["soggiorno", "salotto", "televisione", " tv", "tv ", "divano"]],
+  ["router", ["router", "modem", "internet", "wifi"]],
+  ["alarm", ["allarme"]],
+  ["security", ["telecamera", "sicurezza", "videocamera", "cam"]],
+  ["tv", ["televisione", " tv", "tv "]],
+  ["livingroom", ["soggiorno", "salotto", "divano"]],
   ["bedroom", ["camera", "letto", "comodino", "armadio"]],
   ["climate", ["clima", "termostato", "condizionatore", "climatizzatore", "temperatura"]],
 ];
+
+// Suggerisce anche i SENSORI (non solo l'icona) cercando nel nome delle
+// entità vere di Cristian le parole scritte nel campo Nome — es. scrivendo
+// "Lavatrice" trova da solo switch.lavatrice_xxx e sensor.lavatrice_power
+// se esistono, invece di lasciarli vuoti. Punteggio semplice: un punto per
+// ogni parola del nome (>2 lettere) trovata nell'entity_id o friendly_name;
+// vince l'entità col punteggio più alto (a parità, la prima trovata).
+function mcSuggestEntities(name, hass) {
+  const words = (name || "").toLowerCase().split(/[^a-zàèéìòù0-9]+/).filter(w => w.length > 2);
+  if (!words.length || !hass) return {};
+  const states = hass.states;
+  const score = id => {
+    const fn = ((states[id].attributes && states[id].attributes.friendly_name) || "").toLowerCase();
+    const hay = fn + " " + id.toLowerCase();
+    return words.reduce((s, w) => s + (hay.includes(w) ? 1 : 0), 0);
+  };
+  const best = prefixes => {
+    let bestId = null, bestScore = 0;
+    for (const id of Object.keys(states)) {
+      if (!prefixes.some(p => id.startsWith(p))) continue;
+      const s = score(id);
+      if (s > bestScore) { bestScore = s; bestId = id; }
+    }
+    return bestId;
+  };
+  return {
+    switch: best(["switch.", "light.", "input_boolean."]),
+    power: best(["sensor."]),
+  };
+}
 function mcSuggestIcon(name) {
   const n = ` ${(name || "").toLowerCase().trim()} `;
   if (n.trim() === "") return null;
@@ -404,11 +441,136 @@ function mcIconVacuum() {
   </svg>`;
 }
 
+// Lavatrice: oblò che gira quando è in funzione (riusa l'animazione delle
+// pale del ventilatore: stesso effetto di rotazione).
+function mcIconWasher() {
+  return `
+  <svg viewBox="0 0 100 100" class="mc-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mcWashBody" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c3cbd3"/><stop offset=".5" stop-color="#f5f7f9"/><stop offset="1" stop-color="#8a94a1"/></linearGradient>
+      <radialGradient id="mcWashDoor" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#4a5261"/><stop offset=".6" stop-color="#1c212b"/><stop offset="1" stop-color="#050608"/></radialGradient>
+      <radialGradient id="mcWashGlow" cx="50%" cy="50%" r="55%"><stop offset="0" stop-color="#47b5ff" stop-opacity=".3"/><stop offset="1" stop-color="#47b5ff" stop-opacity="0"/></radialGradient>
+      <radialGradient id="mcShadowW" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".4"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    </defs>
+    <ellipse class="mc-glow" cx="50" cy="55" rx="32" ry="27" fill="url(#mcWashGlow)"/>
+    <ellipse cx="50" cy="90" rx="28" ry="4.5" fill="url(#mcShadowW)"/>
+    <rect x="18" y="14" width="64" height="72" rx="7" fill="url(#mcWashBody)" stroke="#5b6472" stroke-width="1.5"/>
+    <rect x="24" y="19" width="52" height="8" rx="2" fill="#5b6472" opacity=".5"/>
+    <circle cx="50" cy="55" r="24" fill="url(#mcWashDoor)" stroke="#050608" stroke-width="2"/>
+    <circle cx="50" cy="55" r="18" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+    <g class="mc-fan-blades" style="transform-origin:50px 55px">
+      <path d="M50 55 Q56 40 46 38 Q40 48 50 55 Z" fill="#5b6472" opacity=".8"/>
+      <path d="M50 55 Q66 58 62 68 Q50 66 50 55 Z" fill="#5b6472" opacity=".6"/>
+    </g>
+  </svg>`;
+}
+
+// Asciugatrice: stesso corpo della lavatrice, vapore caldo invece del cestello che gira.
+function mcIconDryer() {
+  return `
+  <svg viewBox="0 0 100 100" class="mc-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mcDryBody" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c3cbd3"/><stop offset=".5" stop-color="#f5f7f9"/><stop offset="1" stop-color="#8a94a1"/></linearGradient>
+      <radialGradient id="mcDryDoor" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#4a5261"/><stop offset=".6" stop-color="#1c212b"/><stop offset="1" stop-color="#050608"/></radialGradient>
+      <radialGradient id="mcDryGlow" cx="50%" cy="50%" r="55%"><stop offset="0" stop-color="#ff9a4d" stop-opacity=".3"/><stop offset="1" stop-color="#ff9a4d" stop-opacity="0"/></radialGradient>
+      <radialGradient id="mcShadowDr" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".4"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    </defs>
+    <ellipse class="mc-glow" cx="50" cy="55" rx="32" ry="27" fill="url(#mcDryGlow)"/>
+    <ellipse cx="50" cy="90" rx="28" ry="4.5" fill="url(#mcShadowDr)"/>
+    <rect x="18" y="14" width="64" height="72" rx="7" fill="url(#mcDryBody)" stroke="#5b6472" stroke-width="1.5"/>
+    <rect x="24" y="19" width="52" height="8" rx="2" fill="#5b6472" opacity=".5"/>
+    <circle cx="50" cy="55" r="24" fill="url(#mcDryDoor)" stroke="#050608" stroke-width="2"/>
+    <circle cx="50" cy="55" r="18" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+    <g class="mc-steam" stroke="#ffceac" stroke-width="2.4" stroke-linecap="round" fill="none">
+      <path d="M42 30 q4 -6 0 -12"/><path d="M58 30 q4 -6 0 -12"/>
+    </g>
+  </svg>`;
+}
+
+// Lavastoviglie: pannello comandi con LED, oblò a vista chiusa.
+function mcIconDishwasher() {
+  return `
+  <svg viewBox="0 0 100 100" class="mc-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mcDishBody" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c3cbd3"/><stop offset=".5" stop-color="#f5f7f9"/><stop offset="1" stop-color="#8a94a1"/></linearGradient>
+      <radialGradient id="mcDishLed" cx="50%" cy="38%" r="70%"><stop offset="0" stop-color="#bfe4ff"/><stop offset=".5" stop-color="#47b5ff"/><stop offset="1" stop-color="#1e7fd6"/></radialGradient>
+      <radialGradient id="mcDishGlow" cx="50%" cy="45%" r="55%"><stop offset="0" stop-color="#47b5ff" stop-opacity=".3"/><stop offset="1" stop-color="#47b5ff" stop-opacity="0"/></radialGradient>
+      <radialGradient id="mcShadowDi" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".4"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    </defs>
+    <ellipse class="mc-glow" cx="50" cy="55" rx="32" ry="27" fill="url(#mcDishGlow)"/>
+    <ellipse cx="50" cy="90" rx="28" ry="4.5" fill="url(#mcShadowDi)"/>
+    <rect x="18" y="14" width="64" height="72" rx="7" fill="url(#mcDishBody)" stroke="#5b6472" stroke-width="1.5"/>
+    <rect x="24" y="22" width="52" height="10" rx="2" fill="#1c212b"/>
+    <circle class="mc-bolt" cx="66" cy="27" r="3" fill="url(#mcDishLed)"/>
+    <rect x="24" y="40" width="52" height="38" rx="3" fill="#dfe4e9" stroke="#8a94a1" stroke-width="1"/>
+    <line x1="24" y1="58" x2="76" y2="58" stroke="#8a94a1" stroke-width="1"/>
+  </svg>`;
+}
+
+// TV a schermo piatto: icona dedicata (diversa da "Soggiorno", che è il
+// divano davanti alla TV) per una TV/monitor da camera o ufficio.
+function mcIconTv() {
+  return `
+  <svg viewBox="0 0 100 100" class="mc-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mcTv2Body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a2e38"/><stop offset="1" stop-color="#12141a"/></linearGradient>
+      <radialGradient id="mcTv2Screen" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#8fd6ff"/><stop offset=".55" stop-color="#47b5ff"/><stop offset="1" stop-color="#1e7fd6"/></radialGradient>
+      <radialGradient id="mcTv2Glow" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="#47b5ff" stop-opacity=".3"/><stop offset="1" stop-color="#47b5ff" stop-opacity="0"/></radialGradient>
+      <radialGradient id="mcShadowTv" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".4"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    </defs>
+    <ellipse class="mc-glow" cx="50" cy="42" rx="36" ry="24" fill="url(#mcTv2Glow)"/>
+    <ellipse cx="50" cy="86" rx="26" ry="4.5" fill="url(#mcShadowTv)"/>
+    <rect x="14" y="16" width="72" height="48" rx="4" fill="url(#mcTv2Body)" stroke="#050608" stroke-width="1.5"/>
+    <rect class="mc-screen" x="18" y="20" width="64" height="40" rx="2" fill="url(#mcTv2Screen)"/>
+    <rect class="mc-screen" x="24" y="26" width="30" height="4" rx="2" fill="#fff" opacity=".5"/>
+    <rect x="44" y="64" width="12" height="10" fill="#12141a"/>
+    <rect x="30" y="74" width="40" height="5" rx="2.5" fill="#3a4150"/>
+  </svg>`;
+}
+
+// Router/modem: LED che lampeggiano quando è collegato/attivo.
+function mcIconRouter() {
+  return `
+  <svg viewBox="0 0 100 100" class="mc-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mcRouterBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a5261"/><stop offset="1" stop-color="#2a3040"/></linearGradient>
+      <radialGradient id="mcShadowRt" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".4"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    </defs>
+    <ellipse cx="50" cy="78" rx="30" ry="5" fill="url(#mcShadowRt)"/>
+    <line x1="30" y1="46" x2="20" y2="18" stroke="#8a94a1" stroke-width="3" stroke-linecap="round"/>
+    <line x1="70" y1="46" x2="80" y2="18" stroke="#8a94a1" stroke-width="3" stroke-linecap="round"/>
+    <rect x="18" y="46" width="64" height="26" rx="6" fill="url(#mcRouterBody)" stroke="#050608" stroke-width="1.4"/>
+    <circle class="mc-bolt-green" cx="30" cy="59" r="3" fill="#8ff0b4"/>
+    <circle class="mc-bolt-green" cx="42" cy="59" r="3" fill="#8ff0b4" style="animation-delay:.3s"/>
+    <circle class="mc-bolt-green" cx="54" cy="59" r="3" fill="#8ff0b4" style="animation-delay:.6s"/>
+  </svg>`;
+}
+
+// Allarme: scudo con segno di spunta, si accende di rosso quando attivo.
+function mcIconAlarm() {
+  return `
+  <svg viewBox="0 0 100 100" class="mc-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mcShieldBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5b6472"/><stop offset="1" stop-color="#2a3040"/></linearGradient>
+      <radialGradient id="mcAlarmLed" cx="50%" cy="38%" r="70%"><stop offset="0" stop-color="#ff9a92"/><stop offset=".5" stop-color="#e6432b"/><stop offset="1" stop-color="#a32412"/></radialGradient>
+      <radialGradient id="mcAlarmGlow" cx="50%" cy="50%" r="55%"><stop offset="0" stop-color="#e6432b" stop-opacity=".32"/><stop offset="1" stop-color="#e6432b" stop-opacity="0"/></radialGradient>
+      <radialGradient id="mcShadowAl" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".4"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    </defs>
+    <ellipse class="mc-glow" cx="50" cy="55" rx="30" ry="26" fill="url(#mcAlarmGlow)"/>
+    <ellipse cx="50" cy="90" rx="22" ry="4.5" fill="url(#mcShadowAl)"/>
+    <path d="M50 14 L80 26 V52 Q80 76 50 88 Q20 76 20 52 V26 Z" fill="url(#mcShieldBody)" stroke="#050608" stroke-width="1.6"/>
+    <path d="M50 20 L74 30 V52 Q74 71 50 81 Q26 71 26 52 V30 Z" fill="none" stroke="#8a94a1" stroke-width="1.2" opacity=".5"/>
+    <circle class="mc-bolt" cx="50" cy="52" r="10" fill="url(#mcAlarmLed)"/>
+    <path d="M46 52 L49 56 L56 47" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  </svg>`;
+}
+
 const MC_ICON_RENDER = {
   generic: mcIconGeneric, climate: mcIconClimate, livingroom: mcIconLivingroom, bedroom: mcIconBedroom,
   kitchen: mcIconKitchen, oven: mcIconOven, fridge: mcIconFridge, bathroom: mcIconBathroom,
   office: mcIconOffice, garden: mcIconGarden, security: mcIconSecurity, gate: mcIconGate,
-  fan: mcIconFan, vacuum: mcIconVacuum,
+  fan: mcIconFan, vacuum: mcIconVacuum, washer: mcIconWasher, dryer: mcIconDryer,
+  dishwasher: mcIconDishwasher, tv: mcIconTv, router: mcIconRouter, alarm: mcIconAlarm,
 };
 function mcIconFor(type) { return (MC_ICON_RENDER[type] || mcIconGeneric)(); }
 
@@ -583,6 +745,8 @@ class MiniCard extends HTMLElement {
       .mc-fan-blades{transition:opacity .3s}
       .mc-card.on .mc-fan-blades{animation:mc-fan-spin 1.1s linear infinite}
       @keyframes mc-fan-spin{to{transform:rotate(360deg)}}
+      .mc-bolt-green{opacity:.25;transition:opacity .4s}
+      .mc-card.on .mc-bolt-green{opacity:1;filter:drop-shadow(0 0 4px #38e08a);animation:mc-pulse-fast 1.6s ease-in-out infinite}
       .mc-scrim{position:fixed;inset:0;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);display:flex;
         align-items:center;justify-content:center;padding:22px;z-index:9;opacity:0;pointer-events:none;transition:opacity .18s}
       .mc-scrim.on{opacity:1;pointer-events:auto}
@@ -761,6 +925,11 @@ class MiniCardEditor extends HTMLElement {
     // (e non è il default "generic"), trattiamola come scelta a mano
     // dall'utente: digitare altro nel nome non gliela deve più cambiare.
     this._iconManuallySet = merged.icon_type !== "generic" && merged.icon_type !== mcSuggestIcon(merged.name);
+    // Stessa logica per presa e sensore potenza: se sono già configurati non
+    // li tocchiamo più scrivendo nel nome; se sono vuoti, restano candidati
+    // per l'auto-abbinamento (vedi #f_name più sotto).
+    this._switchManuallySet = !!merged.switch;
+    this._powerManuallySet = !!merged.power;
     this._render();
   }
   set hass(h) { this._hass = h; if (h && this._config && !this._built) { this._render(); this._built = true; } }
@@ -820,12 +989,20 @@ class MiniCardEditor extends HTMLElement {
       input.value = this._entityName(val);
       list.hidden = true;
       clearBtn.hidden = false;
+      // Scelta fatta a mano: da qui in poi scrivere nel nome non deve più
+      // toccare questo campo (vale solo per presa e potenza, gli unici che
+      // l'auto-abbinamento riempie da solo).
+      if (field === "switch") this._switchManuallySet = true;
+      if (field === "power") this._powerManuallySet = true;
       this._set(field, val);
     });
     clearBtn.addEventListener("mousedown", e => {
       e.preventDefault();
       input.value = "";
       clearBtn.hidden = true;
+      // Svuotato a mano: torna candidato per l'auto-abbinamento dal nome.
+      if (field === "switch") this._switchManuallySet = false;
+      if (field === "power") this._powerManuallySet = false;
       this._set(field, "");
     });
   }
@@ -863,12 +1040,14 @@ class MiniCardEditor extends HTMLElement {
       .mc-pickwrap input{width:100%;padding-right:30px}
       .mc-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:none;background:none;
         color:var(--secondary-text-color);font-size:14px;cursor:pointer;padding:4px}
-      .mc-optlist{position:absolute;z-index:20;top:calc(100% + 2px);left:0;right:0;max-height:220px;overflow-y:auto;
-        background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;
-        box-shadow:0 8px 20px rgba(0,0,0,.25)}
-      .mc-opt{padding:8px 11px;font-size:13.5px;color:var(--primary-text-color);cursor:pointer}
-      .mc-opt:hover{background:rgba(var(--rgb-primary-color,3,169,244),.1)}
-      .mc-opt small{display:block;font-size:10px;color:var(--secondary-text-color)}
+      .mc-optlist{position:absolute;z-index:999;top:calc(100% + 2px);left:0;right:0;max-height:220px;overflow-y:auto;
+        background:var(--card-background-color,var(--primary-background-color,#1c1f26));
+        border:1px solid var(--divider-color);border-radius:8px;
+        box-shadow:0 10px 26px rgba(0,0,0,.45)}
+      .mc-opt{padding:8px 11px;font-size:13.5px;line-height:1.35;color:var(--primary-text-color);cursor:pointer;
+        background:var(--card-background-color,var(--primary-background-color,#1c1f26))}
+      .mc-opt:hover{background:rgba(var(--rgb-primary-color,3,169,244),.14)}
+      .mc-opt small{display:block;font-size:10px;color:var(--secondary-text-color);margin-top:1px}
       .mc-opt-empty{color:var(--secondary-text-color);cursor:default}
     </style>
     <div class="mce">
@@ -896,14 +1075,31 @@ class MiniCardEditor extends HTMLElement {
     const on = (id, ev, fn) => { const el = this.querySelector(id); if (el) el.addEventListener(ev, fn); };
     on("#f_name", "input", e => {
       const name = e.target.value;
+      const updates = { name };
       const suggestion = mcSuggestIcon(name);
       if (suggestion && !this._iconManuallySet && suggestion !== this._config.icon_type) {
-        this._config = Object.assign({}, this._config, { name, icon_type: suggestion });
-        this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b.dataset.icon === suggestion));
-        this._emit();
-      } else {
-        this._set("name", name);
+        updates.icon_type = suggestion;
       }
+      // Auto-abbinamento sensori: cerca tra le entità vere di Cristian
+      // qualcosa che assomigli al nome scritto (es. "Lavatrice" → trova da
+      // solo switch/sensore che contengono "lavatrice"), solo per i campi
+      // ancora vuoti e non già scelti a mano.
+      if ((!this._switchManuallySet && !this._config.switch) || (!this._powerManuallySet && !this._config.power)) {
+        const s = mcSuggestEntities(name, this._hass);
+        if (s.switch && !this._switchManuallySet && !this._config.switch) updates.switch = s.switch;
+        if (s.power && !this._powerManuallySet && !this._config.power) updates.power = s.power;
+      }
+      this._config = Object.assign({}, this._config, updates);
+      if (updates.icon_type) this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b.dataset.icon === updates.icon_type));
+      if (updates.switch) {
+        const p = this.querySelector('.mc-picker[data-field="switch"]');
+        if (p) { p.querySelector(".mc-search").value = this._entityName(updates.switch); p.querySelector(".mc-clear").hidden = false; }
+      }
+      if (updates.power) {
+        const p = this.querySelector('.mc-picker[data-field="power"]');
+        if (p) { p.querySelector(".mc-search").value = this._entityName(updates.power); p.querySelector(".mc-clear").hidden = false; }
+      }
+      this._emit();
     });
     this.querySelectorAll(".mc-iconbtn").forEach(btn => btn.addEventListener("click", () => {
       this._iconManuallySet = true;
@@ -924,7 +1120,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "mini-card",
   name: "Mini Card",
-  description: "Tessera piccola e personalizzabile per un dispositivo o una stanza: scegli tra 14 icone curate con anteprima vera (generico, clima, soggiorno, camera, cucina, forno, frigorifero, bagno, ufficio, giardino, sicurezza, cancello, ventilatore, aspirapolvere), presa/luce e sensori con ricerca. Pensata per il telefono, si adatta se la allarghi.",
+  description: "Tessera piccola e personalizzabile per un dispositivo o una stanza: 20 icone curate con anteprima vera, sensori con ricerca, e auto-abbinamento (scrivi \"Lavatrice\" e trova da sola presa/sensore giusti). Pensata per il telefono, si adatta se la allarghi.",
   preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-mini-card",
 });
