@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.5.0";
+const MC_VERSION = "1.6.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -14,7 +14,7 @@ const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "",
-  power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "",
+  power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
 };
 
@@ -115,6 +115,32 @@ function mcSuggestIcon(name) {
     if (words.some(w => n.includes(w))) return icon;
   }
   return null;
+}
+
+// Elenca tutte le viste di tutte le dashboard (titolo + percorso vero) per il
+// picker del campo "Collegamento" — invece di far scrivere a memoria un path
+// tipo /dashboard-tablet/soggiorno-tablet, si cerca "soggiorno" come per
+// qualunque altro campo. Una sola chiamata all'apertura dell'editor (non ad
+// ogni carattere digitato): vedi il guard in MiniCardEditor.set hass().
+async function mcLoadNavTargets(hass) {
+  if (!hass || typeof hass.callWS !== "function") return [];
+  const targets = [];
+  let dashboards;
+  try {
+    dashboards = await hass.callWS({ type: "lovelace/dashboards/list" });
+  } catch (e) { dashboards = []; }
+  const all = [{ url_path: null, title: "Dashboard predefinita" }, ...(dashboards || [])];
+  for (const d of all) {
+    try {
+      const cfg = await hass.callWS({ type: "lovelace/config", url_path: d.url_path || undefined });
+      (cfg.views || []).forEach((v, i) => {
+        const viewPath = v.path || String(i);
+        const base = d.url_path || "lovelace";
+        targets.push({ path: `/${base}/${viewPath}`, label: `${d.title || base} · ${v.title || viewPath}` });
+      });
+    } catch (e) { /* dashboard non leggibile (yaml/strategy) o non accessibile: salta */ }
+  }
+  return targets;
 }
 
 // ---- pacchetto icone: 14 disegni curati a mano (non mdi, non emoji) -------
@@ -903,6 +929,20 @@ class MiniCard extends HTMLElement {
     if (t != null) subParts.push(`🌡️ ${this._fmt(t)}°C`);
     if (h != null) subParts.push(`💧 ${Math.round(h)}%`);
     if (todayKwh != null) subParts.push(`⚡ ${this._fmt(todayKwh)} kWh oggi`);
+    // Card "Stanza": chi sta consumando di più in questo momento, tra i
+    // membri del gruppo scelto — stesso calcolo del "PICCO" già usato a mano
+    // nella card Riepilogo Carichi della Tablet Home.
+    if (cfg.group) {
+      const g = this._hass.states[cfg.group];
+      const members = (g && g.attributes && g.attributes.entity_id) || [];
+      let best = null;
+      members.forEach(id => {
+        const v = this._num(id);
+        if (v == null) return;
+        if (!best || v > best.v) best = { v, name: (this._hass.states[id].attributes || {}).friendly_name || id };
+      });
+      if (best && best.v > 1) subParts.push(`🏆 ${this._esc(best.name)} ${Math.round(best.v)}W`);
+    }
     if (subParts.length) { sub.hidden = false; sub.innerHTML = subParts.join(" · "); }
     else sub.hidden = true;
 
@@ -1032,7 +1072,18 @@ class MiniCardEditor extends HTMLElement {
     this._powerManuallySet = !!merged.power;
     this._render();
   }
-  set hass(h) { this._hass = h; if (h && this._config && !this._built) { this._render(); this._built = true; } }
+  set hass(h) {
+    this._hass = h;
+    if (h && this._config && !this._built) { this._render(); this._built = true; }
+    if (h && !this._navTargets && !this._navLoading) {
+      this._navLoading = true;
+      mcLoadNavTargets(h).then(targets => {
+        this._navTargets = targets;
+        this._navLoading = false;
+        if (this._built) this._render();
+      });
+    }
+  }
 
   _emit() { this._internalChange = true; this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true })); }
   _set(key, val) { this._config = Object.assign({}, this._config, { [key]: val }); this._emit(); }
@@ -1181,6 +1232,64 @@ class MiniCardEditor extends HTMLElement {
     });
   }
 
+  // Picker delle viste (dashboard+percorso vero) per il campo "Collegamento":
+  // stessa esperienza di ricerca degli altri campi, invece di un testo libero
+  // dove bisogna sapere a memoria il path esatto.
+  _navLabel(path) {
+    if (!path) return "";
+    const t = (this._navTargets || []).find(x => x.path === path);
+    return t ? t.label : path;
+  }
+
+  _navPickerHTML(sel) {
+    const shown = sel ? this._esc(this._navLabel(sel)) : "";
+    return `<div class="fld mc-navpicker">
+      <label>Collegamento ad un'altra vista — opzionale</label>
+      <span class="h">Cerca la vista di destinazione: se la scegli, toccare la card ti porta lì invece di aprire lo storico consumi</span>
+      <div class="mc-pickwrap">
+        <input type="text" class="mc-search" autocomplete="off" placeholder="Cerca una vista..." value="${shown}">
+        <button type="button" class="mc-clear" title="Svuota" ${sel ? "" : "hidden"}>✕</button>
+        <div class="mc-optlist" hidden></div>
+      </div>
+    </div>`;
+  }
+
+  _wireNavPicker(container) {
+    const input = container.querySelector(".mc-search");
+    const list = container.querySelector(".mc-optlist");
+    const clearBtn = container.querySelector(".mc-clear");
+    const renderList = filterText => {
+      const targets = this._navTargets || [];
+      const f = (filterText || "").toLowerCase().trim();
+      const matches = (f === "" ? targets : targets.filter(t =>
+        t.label.toLowerCase().includes(f) || t.path.toLowerCase().includes(f)
+      )).slice(0, 80);
+      list.innerHTML = matches.length
+        ? matches.map(t => `<div class="mc-opt" data-val="${this._esc(t.path)}">${this._esc(t.label)}<small>${this._esc(t.path)}</small></div>`).join("")
+        : `<div class="mc-opt mc-opt-empty">${targets.length ? "Nessun risultato" : "Sto caricando le viste…"}</div>`;
+      list.hidden = false;
+    };
+    input.addEventListener("focus", () => renderList(""));
+    input.addEventListener("input", () => renderList(input.value));
+    input.addEventListener("blur", () => setTimeout(() => { list.hidden = true; }, 150));
+    list.addEventListener("mousedown", e => {
+      const opt = e.target.closest(".mc-opt[data-val]");
+      if (!opt) return;
+      e.preventDefault();
+      const path = opt.dataset.val;
+      input.value = this._navLabel(path);
+      list.hidden = true;
+      clearBtn.hidden = false;
+      this._set("path", path);
+    });
+    clearBtn.addEventListener("mousedown", e => {
+      e.preventDefault();
+      input.value = "";
+      clearBtn.hidden = true;
+      this._set("path", "");
+    });
+  }
+
   _iconGridHTML(sel, hasCustom) {
     const types = Object.keys(MC_ICON_RENDER);
     const customBtn = `
@@ -1235,9 +1344,21 @@ class MiniCardEditor extends HTMLElement {
       .mc-svgrow{display:flex;gap:10px;align-items:flex-start}
       .mc-svgrow textarea{flex:1}
       .mc-creator-link{font-size:12px;font-weight:700;color:var(--primary-color);text-decoration:none}
+      .mc-modetoggle{display:flex;gap:8px}
+      .mc-modebtn{flex:1;padding:11px 8px;border-radius:10px;border:1.5px solid var(--divider-color);
+        background:var(--card-background-color);color:var(--primary-text-color);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+      .mc-modebtn.sel{border-color:var(--primary-color);background:rgba(var(--rgb-primary-color,3,169,244),.12)}
     </style>
     <div class="mce">
       <div class="fld"><label>Nome</label><input type="text" id="f_name" value="${(c.name || "").replace(/"/g, "&quot;")}"></div>
+      <div class="fld">
+        <label>Tipo di card</label>
+        <span class="h">"Dispositivo" controlla e mostra un apparecchio singolo; "Stanza" è un riepilogo che porta a un'altra vista al tocco</span>
+        <div class="mc-modetoggle">
+          <button type="button" class="mc-modebtn${c.mode !== "room" ? " sel" : ""}" data-mode="device">📦 Dispositivo</button>
+          <button type="button" class="mc-modebtn${c.mode === "room" ? " sel" : ""}" data-mode="room">🚪 Stanza (collegamento)</button>
+        </div>
+      </div>
       <div class="fld"><label>Icona</label>${this._iconGridHTML(c.icon_type, !!(c.custom_icon_svg || "").trim())}</div>
       <div class="fld" id="f_customwrap" ${(c.custom_icon_svg || "").trim() ? "" : "hidden"}>
         <label>Codice SVG dell'icona personalizzata</label>
@@ -1247,21 +1368,24 @@ class MiniCardEditor extends HTMLElement {
           <div class="mc-svgpreview" id="f_custompreview">${(c.custom_icon_svg || "").trim() ? c.custom_icon_svg : ""}</div>
         </div>
       </div>
-      ${this._devicePickerHTML(c.device_id)}
-      ${this._pickerHTML("switch", ["switch.", "light.", "input_boolean."], c.switch, "Presa/interruttore/luce — opzionale")}
-      ${this._pickerHTML("power", ["sensor."], c.power, "Sensore potenza (W) — opzionale", "senza presa: sopra questa soglia la card si mostra \"accesa\"; abilita anche lo storico consumi e il consumo di oggi")}
-      <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
+      <div id="f_devicewrap" ${c.mode === "room" ? "hidden" : ""}>
+        ${this._devicePickerHTML(c.device_id)}
+        ${this._pickerHTML("switch", ["switch.", "light.", "input_boolean."], c.switch, "Presa/interruttore/luce — opzionale")}
+        <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
+      </div>
+      ${this._pickerHTML("power", ["sensor."], c.power, c.mode === "room" ? "Sensore consumo della stanza (W) — opzionale" : "Sensore potenza (W) — opzionale", "abilita lo storico consumi e il consumo di oggi")}
       ${this._pickerHTML("temp", ["sensor."], c.temp, "Sensore temperatura — opzionale")}
       ${this._pickerHTML("humidity", ["sensor."], c.humidity, "Sensore umidità — opzionale")}
-      ${this._pickerHTML("climate", ["climate."], c.climate, "Climatizzatore — opzionale", "il pulsante ⚙ sulla card apre il telecomando nativo di Home Assistant (temperatura, modalità, ventola)")}
-      <div class="fld">
-        <label>Collegamento ad un'altra vista — opzionale</label>
-        <span class="h">Es. /dashboard-tablet/soggiorno-tablet — se lo imposti, toccare la card ti porta lì invece di aprire lo storico consumi (come le card delle stanze)</span>
-        <input type="text" id="f_path" value="${(c.path || "").replace(/"/g, "&quot;")}" placeholder="/dashboard-tablet/nome-vista">
+      <div id="f_devicewrap2" ${c.mode === "room" ? "hidden" : ""}>
+        ${this._pickerHTML("climate", ["climate."], c.climate, "Climatizzatore — opzionale", "il pulsante ⚙ sulla card apre il telecomando nativo di Home Assistant (temperatura, modalità, ventola)")}
+        <div class="row" id="f_climaterow" ${c.icon_type === "climate" ? "" : "hidden"}>
+          <div class="fld"><label>Soglia freddo (°C)</label><input type="number" id="f_sfreddo" value="${c.soglia_freddo ?? 18}"></div>
+          <div class="fld"><label>Soglia caldo (°C)</label><input type="number" id="f_scaldo" value="${c.soglia_caldo ?? 26}"></div>
+        </div>
       </div>
-      <div class="row" id="f_climaterow" ${c.icon_type === "climate" ? "" : "hidden"}>
-        <div class="fld"><label>Soglia freddo (°C)</label><input type="number" id="f_sfreddo" value="${c.soglia_freddo ?? 18}"></div>
-        <div class="fld"><label>Soglia caldo (°C)</label><input type="number" id="f_scaldo" value="${c.soglia_caldo ?? 26}"></div>
+      <div id="f_roomwrap" ${c.mode === "room" ? "" : "hidden"}>
+        ${this._pickerHTML("group", ["sensor.", "group."], c.group, "Gruppo di sensori potenza — opzionale", "per mostrare quale dispositivo della stanza sta consumando di più in questo momento")}
+        ${this._navPickerHTML(c.path)}
       </div>
       <div class="row">
         <div class="fld"><label>Prezzo energia (€/kWh)</label>
@@ -1271,9 +1395,13 @@ class MiniCardEditor extends HTMLElement {
             <option value="14"${c.storico_giorni == 14 ? " selected" : ""}>14 giorni</option>
             <option value="30"${c.storico_giorni == 30 ? " selected" : ""}>30 giorni</option></select></div>
       </div>
-      <div class="note">💡 Scrivendo il nome (es. "Forno", "Bagno", "Giardino") l'icona giusta viene suggerita da sola — se la cambi a mano dal menu, resta quella scelta. Scegliendo il Dispositivo, i sensori proposti sono solo i suoi, non più indovinati dal nome su tutta casa. Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Tocca la card per vedere lo storico consumi (serve il sensore di potenza) — a meno che tu non abbia impostato un Collegamento, nel qual caso ti porta lì; il badge on/off accende/spegne direttamente; il pulsante ⚙ apre le informazioni/impostazioni native di Home Assistant (per un climatizzatore, il telecomando completo).</div>
+      <div class="note">💡 Scrivendo il nome (es. "Forno", "Bagno", "Giardino") l'icona giusta viene suggerita da sola — se la cambi a mano dal menu, resta quella scelta. Scegliendo il Dispositivo, i sensori proposti sono solo i suoi, non più indovinati dal nome su tutta casa. Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Una card "Dispositivo" si tocca per vedere lo storico consumi (serve il sensore di potenza); una card "Stanza" con un Collegamento impostato ti porta lì invece. Il badge on/off accende/spegne direttamente; il pulsante ⚙ apre le informazioni/impostazioni native di Home Assistant (per un climatizzatore, il telecomando completo).</div>
     </div>`;
     const on = (id, ev, fn) => { const el = this.querySelector(id); if (el) el.addEventListener(ev, fn); };
+    this.querySelectorAll(".mc-modebtn").forEach(btn => btn.addEventListener("click", () => {
+      this._set("mode", btn.dataset.mode);
+      this._render();
+    }));
     on("#f_name", "input", e => {
       const name = e.target.value;
       const updates = { name };
@@ -1328,12 +1456,12 @@ class MiniCardEditor extends HTMLElement {
     });
     this.querySelectorAll(".mc-picker").forEach(p => this._wirePicker(p));
     this.querySelectorAll(".mc-devpicker").forEach(p => this._wireDevicePicker(p));
+    this.querySelectorAll(".mc-navpicker").forEach(p => this._wireNavPicker(p));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
     on("#f_scaldo", "change", e => this._set("soglia_caldo", parseFloat(String(e.target.value).replace(",", ".")) || 26));
     on("#f_price", "change", e => this._set("prezzo_kwh", parseFloat(String(e.target.value).replace(",", ".")) || 0.30));
     on("#f_days", "change", e => this._set("storico_giorni", parseInt(e.target.value) || 14));
-    on("#f_path", "input", e => this._set("path", e.target.value.trim()));
   }
 }
 customElements.define("mini-card-editor", MiniCardEditor);
