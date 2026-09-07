@@ -31,6 +31,12 @@ Tessera **piccola** e **personalizzabile** per Home Assistant: un dispositivo o 
 
 Ogni icona si accende/anima quando il dispositivo collegato è acceso (o quando il sensore di potenza supera la soglia impostata).
 
+## Icone illimitate: la Fucina Icone
+
+Le 20 icone sopra sono un punto di partenza, non un tetto. Nell'editor, il pulsante **"Personalizzata"** nella griglia icone apre un campo dove incollare il codice di un'icona SVG qualsiasi — creata a mano o con la **[Fucina Icone](https://claude.ai/code/artifact/a536cdbd-3027-4f7a-8216-34fb6f11ce30)**, uno strumento di disegno che genera icone nello stesso stile del pacchetto (corpo con gradiente, bagliore, ombra a terra) e con gli stessi nomi di animazione (`.mc-glow`, `.mc-bolt`, `.mc-screen`, `.mc-heat`, `.mc-water`, `.mc-steam`, `.mc-fan-blades`, `.mc-bulb2`, `.mc-bolt-green`, `data-role="mercury"`): un'icona generata lì si accende/anima da sola una volta incollata, senza altro da configurare.
+
+Più card sulla stessa dashboard possono usare la stessa icona personalizzata senza conflitti: la card rinomina da sola i gradienti a ogni istanza.
+
 ## Intelligente: si abbina da sola
 
 Scrivendo il nome del dispositivo (es. **"Lavatrice"**, "Forno", "Bagno", "Telecamera"...):
