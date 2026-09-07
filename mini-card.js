@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.3.1";
+const MC_VERSION = "1.4.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -14,7 +14,7 @@ const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "",
-  power: "", energy: "", switch: "", temp: "", humidity: "",
+  power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
 };
 
@@ -788,6 +788,11 @@ class MiniCard extends HTMLElement {
       @keyframes mc-fan-spin{to{transform:rotate(360deg)}}
       .mc-bolt-green{opacity:.25;transition:opacity .4s}
       .mc-card.on .mc-bolt-green{opacity:1;filter:drop-shadow(0 0 4px #38e08a);animation:mc-pulse-fast 1.6s ease-in-out infinite}
+      .mc-info{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;z-index:1;
+        border:1px solid var(--mc-stroke);background:rgba(255,255,255,.08);color:var(--mc-muted);
+        font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+        opacity:.5;transition:opacity .2s}
+      .mc-info:hover{opacity:1}
       .mc-scrim{position:fixed;inset:0;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);display:flex;
         align-items:center;justify-content:center;padding:22px;z-index:9;opacity:0;pointer-events:none;transition:opacity .18s}
       .mc-scrim.on{opacity:1;pointer-events:auto}
@@ -813,6 +818,7 @@ class MiniCard extends HTMLElement {
     </style>
     <div class="mc">
       <div class="mc-card" data-icon="${this._esc(this._cfg.icon_type)}" data-role="tap">
+        <button class="mc-info" data-role="info" title="Informazioni e impostazioni" hidden>⚙</button>
         <div class="mc-iconwrap">${this._icon()}</div>
         <div class="mc-name">${this._esc(this._cfg.name)}</div>
         <div class="mc-badge" data-role="badge" hidden><span class="dot"></span><span class="lbl">—</span></div>
@@ -824,11 +830,26 @@ class MiniCard extends HTMLElement {
     stopSwipeNavHijack(this.querySelector(".mc"));
     this._el = this.querySelector(".mc-card");
     this._el.addEventListener("click", e => {
-      if (e.target.closest('[data-role="badge"]')) return;
+      if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')) return;
       this._openHistory();
     });
     const badge = this._el.querySelector('[data-role="badge"]');
     badge.onclick = e => { e.stopPropagation(); this._toggle(); };
+    const infoBtn = this._el.querySelector('[data-role="info"]');
+    infoBtn.onclick = e => { e.stopPropagation(); this._openMoreInfo(); };
+  }
+
+  // Priorità: un climatizzatore configurato vince su tutto perché la finestra
+  // "informazioni" nativa di HA per un'entità climate È GIÀ un telecomando
+  // completo (temperatura, modalità, ventola) — non serve costruircene uno.
+  _priorityEntity() {
+    const cfg = this._cfg;
+    return cfg.climate || cfg.switch || cfg.power || cfg.temp || cfg.humidity || "";
+  }
+  _openMoreInfo() {
+    const id = this._priorityEntity();
+    if (!id) return;
+    this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: id }, bubbles: true, composed: true }));
   }
 
   _toggle() {
@@ -862,12 +883,20 @@ class MiniCard extends HTMLElement {
     } else metricWrap.hidden = true;
 
     const t = this._num(cfg.temp), h = this._num(cfg.humidity);
+    // Consumo di oggi sulla tessera stessa (non solo nello storico a tocco),
+    // come già fa il forno nel Centro Elettrodomestici — riusa lo stesso
+    // storico integrato da _loadHistory(), nessun calcolo nuovo.
+    const todayKwh = (cfg.power && this._hist) ? (this._hist[this._dkey(new Date())] || 0) : null;
     const sub = this._el.querySelector('[data-role="sub"]');
-    if (t != null || h != null) {
-      sub.hidden = false;
-      sub.innerHTML = [t != null ? `🌡️ ${this._fmt(t)}°C` : "", h != null ? `💧 ${Math.round(h)}%` : ""]
-        .filter(Boolean).join(" · ");
-    } else sub.hidden = true;
+    const subParts = [];
+    if (t != null) subParts.push(`🌡️ ${this._fmt(t)}°C`);
+    if (h != null) subParts.push(`💧 ${Math.round(h)}%`);
+    if (todayKwh != null) subParts.push(`⚡ ${this._fmt(todayKwh)} kWh oggi`);
+    if (subParts.length) { sub.hidden = false; sub.innerHTML = subParts.join(" · "); }
+    else sub.hidden = true;
+
+    const infoBtn = this._el.querySelector('[data-role="info"]');
+    infoBtn.hidden = !this._priorityEntity();
 
     if (t != null) {
       // L'altezza del mercurio funziona su QUALSIASI icona (anche personalizzata)
@@ -1015,7 +1044,15 @@ class MiniCardEditor extends HTMLElement {
     const list = container.querySelector(".mc-optlist");
     const clearBtn = container.querySelector(".mc-clear");
     const hs = this._hass ? this._hass.states : {};
-    const ids = Object.keys(hs).filter(id => domainPrefixes.some(p => id.startsWith(p)));
+    let ids = Object.keys(hs).filter(id => domainPrefixes.some(p => id.startsWith(p)));
+    // Con un Dispositivo scelto, propone SOLO le sue entità (non più tutta
+    // casa) — se però quel dispositivo non ne ha di questo dominio, torna
+    // alla ricerca globale invece di lasciare la lista vuota.
+    const deviceId = this._config.device_id;
+    if (deviceId && this._hass && this._hass.entities) {
+      const scoped = ids.filter(id => this._hass.entities[id] && this._hass.entities[id].device_id === deviceId);
+      if (scoped.length) ids = scoped;
+    }
     const renderList = filterText => {
       const f = (filterText || "").toLowerCase().trim();
       const matches = (f === "" ? ids : ids.filter(id =>
@@ -1053,6 +1090,72 @@ class MiniCardEditor extends HTMLElement {
       if (field === "switch") this._switchManuallySet = false;
       if (field === "power") this._powerManuallySet = false;
       this._set(field, "");
+    });
+  }
+
+  _deviceName(id) {
+    const d = this._hass && this._hass.devices && this._hass.devices[id];
+    return (d && (d.name_by_user || d.name)) || id;
+  }
+
+  // Picker del Dispositivo vero (registro dispositivi di HA, non nomi
+  // indovinati): scegliendolo, propone da solo presa/potenza/temperatura/
+  // umidità/climatizzatore prendendoli SOLO tra le entità di quel
+  // dispositivo — invece di cercare per assonanza sul nome in tutta casa.
+  _devicePickerHTML(sel) {
+    const shown = sel ? this._esc(this._deviceName(sel)) : "";
+    return `<div class="fld mc-devpicker">
+      <label>Dispositivo</label>
+      <span class="h">Scegli il dispositivo vero: presa/potenza/temperatura/climatizzatore vengono proposti da soli tra le sue entità</span>
+      <div class="mc-pickwrap">
+        <input type="text" class="mc-search" autocomplete="off" placeholder="Cerca dispositivo..." value="${shown}">
+        <button type="button" class="mc-clear" title="Svuota" ${sel ? "" : "hidden"}>✕</button>
+        <div class="mc-optlist" hidden></div>
+      </div>
+    </div>`;
+  }
+
+  _wireDevicePicker(container) {
+    const input = container.querySelector(".mc-search");
+    const list = container.querySelector(".mc-optlist");
+    const clearBtn = container.querySelector(".mc-clear");
+    const devices = (this._hass && this._hass.devices) || {};
+    const entities = (this._hass && this._hass.entities) || {};
+    const ids = Object.keys(devices);
+    const renderList = filterText => {
+      const f = (filterText || "").toLowerCase().trim();
+      const matches = (f === "" ? ids : ids.filter(id => this._deviceName(id).toLowerCase().includes(f))).slice(0, 80);
+      list.innerHTML = matches.length
+        ? matches.map(id => `<div class="mc-opt" data-val="${id}">${this._esc(this._deviceName(id))}</div>`).join("")
+        : `<div class="mc-opt mc-opt-empty">Nessun risultato — questa versione di Home Assistant potrebbe non esporre ancora il registro dispositivi alla card</div>`;
+      list.hidden = false;
+    };
+    input.addEventListener("focus", () => renderList(input.value === this._esc(this._deviceName(this._config.device_id || "")) ? "" : input.value));
+    input.addEventListener("input", () => renderList(input.value));
+    input.addEventListener("blur", () => setTimeout(() => { list.hidden = true; }, 150));
+    list.addEventListener("mousedown", e => {
+      const opt = e.target.closest(".mc-opt[data-val]");
+      if (!opt) return;
+      e.preventDefault();
+      const deviceId = opt.dataset.val;
+      const devEntities = Object.keys(entities).filter(id => entities[id] && entities[id].device_id === deviceId);
+      const byDomain = p => devEntities.find(id => id.startsWith(p));
+      const byClass = (prefix, cls) => devEntities.find(id => id.startsWith(prefix) &&
+        this._hass.states[id] && this._hass.states[id].attributes && this._hass.states[id].attributes.device_class === cls);
+      const updates = { device_id: deviceId };
+      if (!this._switchManuallySet) updates.switch = byDomain("switch.") || byDomain("light.") || "";
+      if (!this._powerManuallySet) updates.power = byClass("sensor.", "power") || "";
+      updates.temp = byClass("sensor.", "temperature") || "";
+      updates.humidity = byClass("sensor.", "humidity") || "";
+      updates.climate = byDomain("climate.") || "";
+      this._config = Object.assign({}, this._config, updates);
+      this._emit();
+      this._render();
+    });
+    clearBtn.addEventListener("mousedown", e => {
+      e.preventDefault();
+      this._set("device_id", "");
+      this._render();
     });
   }
 
@@ -1122,12 +1225,14 @@ class MiniCardEditor extends HTMLElement {
           <div class="mc-svgpreview" id="f_custompreview">${(c.custom_icon_svg || "").trim() ? c.custom_icon_svg : ""}</div>
         </div>
       </div>
+      ${this._devicePickerHTML(c.device_id)}
       ${this._pickerHTML("switch", ["switch.", "light.", "input_boolean."], c.switch, "Presa/interruttore/luce — opzionale")}
-      ${this._pickerHTML("power", ["sensor."], c.power, "Sensore potenza (W) — opzionale", "senza presa: sopra questa soglia la card si mostra \"accesa\"; abilita anche lo storico consumi")}
+      ${this._pickerHTML("power", ["sensor."], c.power, "Sensore potenza (W) — opzionale", "senza presa: sopra questa soglia la card si mostra \"accesa\"; abilita anche lo storico consumi e il consumo di oggi")}
       <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
       ${this._pickerHTML("temp", ["sensor."], c.temp, "Sensore temperatura — opzionale")}
       ${this._pickerHTML("humidity", ["sensor."], c.humidity, "Sensore umidità — opzionale")}
-      <div class="row">
+      ${this._pickerHTML("climate", ["climate."], c.climate, "Climatizzatore — opzionale", "il pulsante ⚙ sulla card apre il telecomando nativo di Home Assistant (temperatura, modalità, ventola)")}
+      <div class="row" id="f_climaterow" ${c.icon_type === "climate" ? "" : "hidden"}>
         <div class="fld"><label>Soglia freddo (°C)</label><input type="number" id="f_sfreddo" value="${c.soglia_freddo ?? 18}"></div>
         <div class="fld"><label>Soglia caldo (°C)</label><input type="number" id="f_scaldo" value="${c.soglia_caldo ?? 26}"></div>
       </div>
@@ -1139,7 +1244,7 @@ class MiniCardEditor extends HTMLElement {
             <option value="14"${c.storico_giorni == 14 ? " selected" : ""}>14 giorni</option>
             <option value="30"${c.storico_giorni == 30 ? " selected" : ""}>30 giorni</option></select></div>
       </div>
-      <div class="note">💡 Scrivendo il nome (es. "Forno", "Bagno", "Giardino") l'icona giusta viene suggerita da sola — se la cambi a mano dal menu, resta quella scelta. Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Tocca la card per vedere lo storico consumi (serve il sensore di potenza); il badge on/off accende/spegne direttamente.</div>
+      <div class="note">💡 Scrivendo il nome (es. "Forno", "Bagno", "Giardino") l'icona giusta viene suggerita da sola — se la cambi a mano dal menu, resta quella scelta. Scegliendo il Dispositivo, i sensori proposti sono solo i suoi, non più indovinati dal nome su tutta casa. Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Tocca la card per vedere lo storico consumi (serve il sensore di potenza); il badge on/off accende/spegne direttamente; il pulsante ⚙ apre le informazioni/impostazioni native di Home Assistant (per un climatizzatore, il telecomando completo).</div>
     </div>`;
     const on = (id, ev, fn) => { const el = this.querySelector(id); if (el) el.addEventListener(ev, fn); };
     on("#f_name", "input", e => {
@@ -1183,6 +1288,8 @@ class MiniCardEditor extends HTMLElement {
       } else {
         if (customWrap) customWrap.hidden = true;
         this._config = Object.assign({}, this._config, { custom_icon_svg: "", icon_type: btn.dataset.icon });
+        const climateRow = this.querySelector("#f_climaterow");
+        if (climateRow) climateRow.hidden = btn.dataset.icon !== "climate";
         this._emit();
       }
     }));
@@ -1193,6 +1300,7 @@ class MiniCardEditor extends HTMLElement {
       this._set("custom_icon_svg", svg);
     });
     this.querySelectorAll(".mc-picker").forEach(p => this._wirePicker(p));
+    this.querySelectorAll(".mc-devpicker").forEach(p => this._wireDevicePicker(p));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
     on("#f_scaldo", "change", e => this._set("soglia_caldo", parseFloat(String(e.target.value).replace(",", ".")) || 26));
