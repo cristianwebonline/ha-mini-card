@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.7.1";
+const MC_VERSION = "1.8.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -826,15 +826,41 @@ class MiniCard extends HTMLElement {
         font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
         opacity:.5;transition:opacity .2s}
       .mc-info:hover{opacity:1}
+      /* Popup immersivo: foglio a schermo intero che sale dal basso (stile
+         "bottom sheet" iOS), non più il piccolo riquadro centrato — icona
+         grande, azioni rapide, poi lo storico consumi già esistente. */
       .mc-scrim{position:fixed;inset:0;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);display:flex;
-        align-items:center;justify-content:center;padding:22px;z-index:9;opacity:0;pointer-events:none;transition:opacity .18s}
+        align-items:flex-end;justify-content:center;padding:0;z-index:9;opacity:0;pointer-events:none;transition:opacity .18s}
       .mc-scrim.on{opacity:1;pointer-events:auto}
-      .mc-modal{width:100%;max-width:360px;max-height:80vh;overflow-y:auto;background:#1a1b21;border:1px solid rgba(255,255,255,.16);
-        border-radius:22px;padding:18px 16px;box-shadow:0 24px 60px rgba(0,0,0,.6);transform:translateY(14px) scale(.97);transition:transform .2s}
+      .mc-modal{width:100%;max-width:420px;max-height:92vh;overflow-y:auto;background:#1a1b21;border:1px solid rgba(255,255,255,.14);
+        border-bottom:none;border-radius:26px 26px 0 0;padding:10px 20px 28px;box-shadow:0 -14px 50px rgba(0,0,0,.55);
+        transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);position:relative}
       .mc-scrim.on .mc-modal{transform:none}
+      .mc-sheet-handle{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.25);margin:6px auto 12px}
       .mc-mh{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
       .mc-mt{font-size:16px;font-weight:850;color:var(--mc-ink)}
-      .mc-x{width:28px;height:28px;border-radius:50%;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.05);color:var(--mc-ink);font-size:14px;cursor:pointer;flex:0 0 auto}
+      .mc-x{width:30px;height:30px;border-radius:50%;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.07);color:var(--mc-ink);font-size:14px;cursor:pointer;flex:0 0 auto}
+      .mc-x-abs{position:absolute;top:14px;right:16px;z-index:1}
+      .mc-hero{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px 4px 4px;text-align:center}
+      .mc-hero-icon{width:112px;height:112px;margin-bottom:4px}
+      .mc-hero-icon .mc-svg{filter:drop-shadow(0 10px 18px rgba(0,0,0,.45))}
+      .mc-hero-icon.mc-hero-icon-room{width:min(80vw,320px);height:auto;aspect-ratio:10/7}
+      /* Riusa la classe .mc-card così le animazioni (.mc-card.on .mc-bolt ecc.)
+         funzionano identiche a quelle della tessera, senza duplicare il CSS —
+         ma qui deve comportarsi da semplice contenitore, non da tessera vera. */
+      .mc-hero-icon.mc-card{background:none;border:none;padding:0;box-shadow:none;cursor:default;
+        border-radius:0;backdrop-filter:none;container-type:normal}
+      .mc-hero-icon.mc-card::before{content:none}
+      .mc-hero-name{font-size:19px;font-weight:850;color:var(--mc-ink);margin-top:8px}
+      .mc-hero-state{font-size:13px;font-weight:700;color:var(--mc-muted)}
+      .mc-hero-state.on{color:#8ff0b4}
+      .mc-actions-row{display:flex;gap:10px;margin:18px 0 6px}
+      .mc-pill{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:13px 10px;border-radius:16px;
+        font:inherit;font-size:13px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
+      .mc-pill.on{background:linear-gradient(135deg,rgba(56,224,138,.28),rgba(56,224,138,.14));border-color:rgba(56,224,138,.5);color:#8ff0b4}
+      .mc-pill-primary{background:linear-gradient(135deg,rgba(71,181,255,.3),rgba(71,181,255,.14));border-color:rgba(71,181,255,.5);color:#bfe6ff}
+      .mc-chips{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin:4px 0 20px}
+      .mc-chip{background:rgba(255,255,255,.05);border:1px solid var(--mc-stroke);border-radius:20px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--mc-ink)}
       .mc-tabs{display:flex;gap:8px;margin-bottom:12px}
       .mc-tab{flex:1;text-align:center;padding:7px;border-radius:10px;font-size:11.5px;font-weight:800;cursor:pointer;
         background:rgba(255,255,255,.05);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
@@ -867,7 +893,7 @@ class MiniCard extends HTMLElement {
     this._el.addEventListener("click", e => {
       if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')) return;
       if (this._cfg.path) { this._navigate(this._cfg.path); return; }
-      this._openHistory();
+      this._openImmersive();
     });
     const badge = this._el.querySelector('[data-role="badge"]');
     badge.onclick = e => { e.stopPropagation(); this._toggle(); };
@@ -901,22 +927,59 @@ class MiniCard extends HTMLElement {
     if (id && this._hass.states[id]) this._hass.callService(id.split(".")[0], "toggle", { entity_id: id });
   }
 
+  // Stessa regola usata sia dalla tessera sia dal popup immersivo: presa/luce
+  // vince se configurata, altrimenti la potenza sopra soglia.
+  _isOn() {
+    const cfg = this._cfg;
+    const sw = cfg.switch && this._hass.states[cfg.switch];
+    const p = this._num(cfg.power);
+    if (sw) return sw.state === "on";
+    if (cfg.power) return p != null && p > (parseFloat(cfg.soglia) || 10);
+    return false;
+  }
+
+  // Testo di stato condiviso tra tessera e popup: su una card "Stanza" non
+  // ha senso "Attivo/A riposo" (quasi sempre sopra soglia).
+  _stateText(on) {
+    const cfg = this._cfg;
+    const sw = cfg.switch && this._hass.states[cfg.switch];
+    if (cfg.mode === "room") return cfg.path ? "Apri la vista →" : "";
+    return sw ? (on ? "Accesa" : "Spenta") : (cfg.power ? (on ? "Attivo" : "A riposo") : "");
+  }
+
+  // Chip informative (temperatura/umidità/consumo oggi/chi consuma di più):
+  // usate sia nella riga sotto il nome sulla tessera sia come "chip" grandi
+  // nel popup immersivo — un solo calcolo, due presentazioni.
+  _subParts() {
+    const cfg = this._cfg;
+    const t = this._num(cfg.temp), h = this._num(cfg.humidity);
+    const todayKwh = (cfg.power && this._hist) ? (this._hist[this._dkey(new Date())] || 0) : null;
+    const parts = [];
+    if (t != null) parts.push(`🌡️ ${this._fmt(t)}°C`);
+    if (h != null) parts.push(`💧 ${Math.round(h)}%`);
+    if (todayKwh != null) parts.push(`⚡ ${this._fmt(todayKwh)} kWh oggi`);
+    if (cfg.group) {
+      const g = this._hass.states[cfg.group];
+      const members = (g && g.attributes && g.attributes.entity_id) || [];
+      let best = null;
+      members.forEach(id => {
+        const v = this._num(id);
+        if (v == null) return;
+        if (!best || v > best.v) best = { v, name: (this._hass.states[id].attributes || {}).friendly_name || id };
+      });
+      if (best && best.v > 1) parts.push(`🏆 ${this._esc(best.name)} ${Math.round(best.v)}W`);
+    }
+    return parts;
+  }
+
   _update() {
     if (!this._el) return;
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
-    let on;
-    if (sw) on = sw.state === "on";
-    else if (cfg.power) on = p != null && p > (parseFloat(cfg.soglia) || 10);
-    else on = false;
+    const on = this._isOn();
     this._el.classList.toggle("on", on);
-    // Su una card "Stanza" la scritta "Attivo/A riposo" non vuol dire niente
-    // (la potenza totale di una stanza è quasi sempre sopra soglia): meglio
-    // far capire che si tratta di un collegamento, se ce n'è uno impostato.
-    this._el.querySelector('[data-role="state"]').textContent = cfg.mode === "room"
-      ? (cfg.path ? "Apri la vista →" : "")
-      : (sw ? (on ? "Accesa" : "Spenta") : (cfg.power ? (on ? "Attivo" : "A riposo") : ""));
+    this._el.querySelector('[data-role="state"]').textContent = this._stateText(on);
 
     const badge = this._el.querySelector('[data-role="badge"]');
     if (sw) {
@@ -932,29 +995,8 @@ class MiniCard extends HTMLElement {
     } else metricWrap.hidden = true;
 
     const t = this._num(cfg.temp), h = this._num(cfg.humidity);
-    // Consumo di oggi sulla tessera stessa (non solo nello storico a tocco),
-    // come già fa il forno nel Centro Elettrodomestici — riusa lo stesso
-    // storico integrato da _loadHistory(), nessun calcolo nuovo.
-    const todayKwh = (cfg.power && this._hist) ? (this._hist[this._dkey(new Date())] || 0) : null;
     const sub = this._el.querySelector('[data-role="sub"]');
-    const subParts = [];
-    if (t != null) subParts.push(`🌡️ ${this._fmt(t)}°C`);
-    if (h != null) subParts.push(`💧 ${Math.round(h)}%`);
-    if (todayKwh != null) subParts.push(`⚡ ${this._fmt(todayKwh)} kWh oggi`);
-    // Card "Stanza": chi sta consumando di più in questo momento, tra i
-    // membri del gruppo scelto — stesso calcolo del "PICCO" già usato a mano
-    // nella card Riepilogo Carichi della Tablet Home.
-    if (cfg.group) {
-      const g = this._hass.states[cfg.group];
-      const members = (g && g.attributes && g.attributes.entity_id) || [];
-      let best = null;
-      members.forEach(id => {
-        const v = this._num(id);
-        if (v == null) return;
-        if (!best || v > best.v) best = { v, name: (this._hass.states[id].attributes || {}).friendly_name || id };
-      });
-      if (best && best.v > 1) subParts.push(`🏆 ${this._esc(best.name)} ${Math.round(best.v)}W`);
-    }
+    const subParts = this._subParts();
     if (subParts.length) { sub.hidden = false; sub.innerHTML = subParts.join(" · "); }
     else sub.hidden = true;
 
@@ -988,25 +1030,42 @@ class MiniCard extends HTMLElement {
     }
   }
 
-  _openHistory() {
+  // Popup immersivo (a schermo intero, non più il piccolo riquadro centrato):
+  // icona grande e animata, azioni rapide (accendi/spegni, informazioni,
+  // apri vista), le chip informative della stanza/dispositivo, poi lo
+  // storico consumi già esistente se c'è un sensore di potenza.
+  _openImmersive() {
     const cfg = this._cfg;
     let ov = this.querySelector(".mc-scrim");
     if (!ov) { ov = document.createElement("div"); ov.className = "mc-scrim"; this.querySelector(".mc").appendChild(ov); }
-    if (!cfg.power) {
-      ov.innerHTML = `<div class="mc-modal"><div class="mc-mh"><div class="mc-mt">${this._esc(cfg.name)}</div><button class="mc-x">✕</button></div>
-        <div class="mc-empty">Configura un sensore di potenza (nell'editor della card) per vedere lo storico consumi.</div></div>`;
-      requestAnimationFrame(() => ov.classList.add("on"));
-      ov.querySelector(".mc-x").onclick = () => ov.classList.remove("on");
-      ov.onclick = e => { if (e.target === ov) ov.classList.remove("on"); };
-      return;
-    }
     let period = "7";
     // null = nessun giorno scelto a mano -> mostra "Oggi" (l'ultima barra).
-    // Prima le barre non erano toccabili: l'unico numero visibile era la
-    // media del periodo, e Cristian la leggeva per sbaglio come "consumo di
-    // oggi". Ora si tocca una barra per vedere il consumo di QUEL giorno.
     let selectedIdx = null;
     const render = () => {
+      const on = this._isOn();
+      const heroIconCls = "mc-hero-icon mc-card" + (cfg.mode === "room" ? " mc-hero-icon-room" : "") + (on ? " on" : "");
+      const actions = [];
+      if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle">⏻ ${on ? "Spegni" : "Accendi"}</button>`);
+      if (this._priorityEntity()) actions.push(`<button class="mc-pill" data-act="info">⚙ Informazioni</button>`);
+      if (cfg.mode === "room" && cfg.path) actions.push(`<button class="mc-pill mc-pill-primary" data-act="nav">Apri la vista →</button>`);
+      const chips = this._subParts().map(p => `<div class="mc-chip">${p}</div>`).join("");
+
+      const heroHTML = `
+        <div class="mc-sheet-handle"></div>
+        <button class="mc-x mc-x-abs" data-act="close">✕</button>
+        <div class="mc-hero">
+          <div class="${heroIconCls}" data-icon="${this._esc(cfg.icon_type)}">${this._icon()}</div>
+          <div class="mc-hero-name">${this._esc(cfg.name)}</div>
+          <div class="mc-hero-state${on ? " on" : ""}">${this._stateText(on)}</div>
+        </div>
+        ${actions.length ? `<div class="mc-actions-row">${actions.join("")}</div>` : ""}
+        ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
+
+      if (!cfg.power) {
+        ov.innerHTML = `<div class="mc-modal">${heroHTML}</div>`;
+        wire();
+        return;
+      }
       const daily = this._hist || {};
       const days = parseInt(period);
       const today = new Date();
@@ -1028,9 +1087,8 @@ class MiniCard extends HTMLElement {
           <div class="mc-hl">${showLbl ? b.label.split(" ")[1] : ""}</div></div>`;
       }).join("");
       ov.innerHTML = `<div class="mc-modal">
-        <div class="mc-mh"><div><div class="mc-mt">${this._esc(cfg.name)}</div>
-          <div style="font-size:11px;color:var(--mc-muted);margin-top:2px">${this._fmt(totKwh)} kWh negli ultimi ${days} giorni · ${this._fmtE(totKwh)}</div></div>
-          <button class="mc-x">✕</button></div>
+        ${heroHTML}
+        <div class="mc-mh"><div style="font-size:11px;color:var(--mc-muted)">${this._fmt(totKwh)} kWh negli ultimi ${days} giorni · ${this._fmtE(totKwh)}</div></div>
         <div class="mc-tabs">
           <div class="mc-tab${period === "7" ? " sel" : ""}" data-p="7">7 giorni</div>
           <div class="mc-tab${period === "30" ? " sel" : ""}" data-p="30">30 giorni</div>
@@ -1041,9 +1099,20 @@ class MiniCard extends HTMLElement {
         <div class="mc-avgrow" style="margin-top:8px;opacity:.7"><div>Media al giorno<small>stima su ${days} giorni</small></div>
           <div style="text-align:right">${this._fmt(avgDay)} kWh<small>${this._fmtE(avgDay)}/giorno</small></div></div>
       </div>`;
-      ov.querySelector(".mc-x").onclick = () => ov.classList.remove("on");
+      wire();
       ov.querySelectorAll(".mc-tab").forEach(el => el.onclick = () => { period = el.dataset.p; selectedIdx = null; render(); });
       ov.querySelectorAll(".mc-col").forEach(el => el.onclick = () => { selectedIdx = parseInt(el.dataset.i, 10); render(); });
+    };
+    // Azioni condivise da entrambe le versioni del contenuto (con/senza
+    // storico consumi): chiudi, accendi/spegni, apri informazioni native,
+    // naviga alla vista collegata.
+    const wire = () => {
+      const close = () => ov.classList.remove("on");
+      const q = sel => ov.querySelector(sel);
+      if (q('[data-act="close"]')) q('[data-act="close"]').onclick = close;
+      if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () => { this._toggle(); setTimeout(render, 400); };
+      if (q('[data-act="info"]')) q('[data-act="info"]').onclick = () => { close(); this._openMoreInfo(); };
+      if (q('[data-act="nav"]')) q('[data-act="nav"]').onclick = () => { close(); this._navigate(cfg.path); };
     };
     render();
     requestAnimationFrame(() => ov.classList.add("on"));
