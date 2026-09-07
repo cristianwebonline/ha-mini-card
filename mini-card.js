@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.6.0";
+const MC_VERSION = "1.6.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -904,7 +904,12 @@ class MiniCard extends HTMLElement {
     else if (cfg.power) on = p != null && p > (parseFloat(cfg.soglia) || 10);
     else on = false;
     this._el.classList.toggle("on", on);
-    this._el.querySelector('[data-role="state"]').textContent = sw ? (on ? "Accesa" : "Spenta") : (cfg.power ? (on ? "Attivo" : "A riposo") : "");
+    // Su una card "Stanza" la scritta "Attivo/A riposo" non vuol dire niente
+    // (la potenza totale di una stanza è quasi sempre sopra soglia): meglio
+    // far capire che si tratta di un collegamento, se ce n'è uno impostato.
+    this._el.querySelector('[data-role="state"]').textContent = cfg.mode === "room"
+      ? (cfg.path ? "Apri la vista →" : "")
+      : (sw ? (on ? "Accesa" : "Spenta") : (cfg.power ? (on ? "Attivo" : "A riposo") : ""));
 
     const badge = this._el.querySelector('[data-role="badge"]');
     if (sw) {
