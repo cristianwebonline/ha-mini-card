@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.4.0";
+const MC_VERSION = "1.4.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -807,8 +807,10 @@ class MiniCard extends HTMLElement {
         background:rgba(255,255,255,.05);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
       .mc-tab.sel{background:linear-gradient(135deg,rgba(71,181,255,.25),rgba(71,181,255,.12));color:var(--mc-ink);border-color:transparent}
       .mc-chart{display:flex;align-items:flex-end;gap:3px;height:74px;margin-bottom:14px}
-      .mc-col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:3px}
-      .mc-bar{width:100%;max-width:14px;border-radius:3px 3px 1px 1px;min-height:2px;background:linear-gradient(180deg,#47b5ff,#2a86c9)}
+      .mc-col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:3px;cursor:pointer}
+      .mc-bar{width:100%;max-width:14px;border-radius:3px 3px 1px 1px;min-height:2px;background:linear-gradient(180deg,#47b5ff,#2a86c9);transition:background .2s}
+      .mc-col.sel .mc-bar{background:linear-gradient(180deg,#ffcc66,#ffb020)}
+      .mc-col.sel .mc-hl{color:var(--mc-ink)}
       .mc-hl{font-size:7.5px;color:var(--mc-muted);font-weight:700}
       .mc-avgrow{display:flex;justify-content:space-between;padding:11px 13px;background:rgba(255,255,255,.04);
         border-radius:12px;border:1px solid var(--mc-stroke);font-size:12.5px;font-weight:700;color:var(--mc-ink)}
@@ -938,6 +940,11 @@ class MiniCard extends HTMLElement {
       return;
     }
     let period = "7";
+    // null = nessun giorno scelto a mano -> mostra "Oggi" (l'ultima barra).
+    // Prima le barre non erano toccabili: l'unico numero visibile era la
+    // media del periodo, e Cristian la leggeva per sbaglio come "consumo di
+    // oggi". Ora si tocca una barra per vedere il consumo di QUEL giorno.
+    let selectedIdx = null;
     const render = () => {
       const daily = this._hist || {};
       const days = parseInt(period);
@@ -950,10 +957,13 @@ class MiniCard extends HTMLElement {
       const mx = Math.max(...bars.map(b => b.v), 0.05);
       const totKwh = bars.reduce((a, b) => a + b.v, 0);
       const avgDay = totKwh / days;
+      const idx = selectedIdx == null ? bars.length - 1 : Math.min(selectedIdx, bars.length - 1);
+      const selBar = bars[idx];
+      const selLabel = idx === bars.length - 1 ? "Oggi" : selBar.label;
       const chartHTML = bars.map((b, i) => {
         const hp = Math.max(2, Math.round(b.v / mx * 100));
         const showLbl = days <= 7 || i % Math.ceil(days / 7) === 0;
-        return `<div class="mc-col"><div class="mc-bar" style="height:${hp}%"></div>
+        return `<div class="mc-col${i === idx ? " sel" : ""}" data-i="${i}"><div class="mc-bar" style="height:${hp}%"></div>
           <div class="mc-hl">${showLbl ? b.label.split(" ")[1] : ""}</div></div>`;
       }).join("");
       ov.innerHTML = `<div class="mc-modal">
@@ -965,11 +975,14 @@ class MiniCard extends HTMLElement {
           <div class="mc-tab${period === "30" ? " sel" : ""}" data-p="30">30 giorni</div>
         </div>
         <div class="mc-chart">${chartHTML}</div>
-        <div class="mc-avgrow"><div>Media al giorno<small>stima su ${days} giorni</small></div>
+        <div class="mc-avgrow"><div>${this._esc(selLabel)}<small>tocca una barra per vedere quel giorno</small></div>
+          <div style="text-align:right">${this._fmt(selBar.v)} kWh<small>${this._fmtE(selBar.v)}</small></div></div>
+        <div class="mc-avgrow" style="margin-top:8px;opacity:.7"><div>Media al giorno<small>stima su ${days} giorni</small></div>
           <div style="text-align:right">${this._fmt(avgDay)} kWh<small>${this._fmtE(avgDay)}/giorno</small></div></div>
       </div>`;
       ov.querySelector(".mc-x").onclick = () => ov.classList.remove("on");
-      ov.querySelectorAll(".mc-tab").forEach(el => el.onclick = () => { period = el.dataset.p; render(); });
+      ov.querySelectorAll(".mc-tab").forEach(el => el.onclick = () => { period = el.dataset.p; selectedIdx = null; render(); });
+      ov.querySelectorAll(".mc-col").forEach(el => el.onclick = () => { selectedIdx = parseInt(el.dataset.i, 10); render(); });
     };
     render();
     requestAnimationFrame(() => ov.classList.add("on"));
