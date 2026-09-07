@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.4.1";
+const MC_VERSION = "1.5.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -14,7 +14,7 @@ const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "",
-  power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "",
+  power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
 };
 
@@ -833,12 +833,21 @@ class MiniCard extends HTMLElement {
     this._el = this.querySelector(".mc-card");
     this._el.addEventListener("click", e => {
       if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')) return;
+      if (this._cfg.path) { this._navigate(this._cfg.path); return; }
       this._openHistory();
     });
     const badge = this._el.querySelector('[data-role="badge"]');
     badge.onclick = e => { e.stopPropagation(); this._toggle(); };
     const infoBtn = this._el.querySelector('[data-role="info"]');
     infoBtn.onclick = e => { e.stopPropagation(); this._openMoreInfo(); };
+  }
+
+  // Stessa navigazione interna (senza ricaricare la pagina) che usa HA per
+  // tap_action: navigate — così la Mini Card può fare anche da "collegamento"
+  // a un'altra vista, come le card delle stanze nella Tablet Home.
+  _navigate(path) {
+    history.pushState(null, "", path);
+    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }
 
   // Priorità: un climatizzatore configurato vince su tutto perché la finestra
@@ -1245,6 +1254,11 @@ class MiniCardEditor extends HTMLElement {
       ${this._pickerHTML("temp", ["sensor."], c.temp, "Sensore temperatura — opzionale")}
       ${this._pickerHTML("humidity", ["sensor."], c.humidity, "Sensore umidità — opzionale")}
       ${this._pickerHTML("climate", ["climate."], c.climate, "Climatizzatore — opzionale", "il pulsante ⚙ sulla card apre il telecomando nativo di Home Assistant (temperatura, modalità, ventola)")}
+      <div class="fld">
+        <label>Collegamento ad un'altra vista — opzionale</label>
+        <span class="h">Es. /dashboard-tablet/soggiorno-tablet — se lo imposti, toccare la card ti porta lì invece di aprire lo storico consumi (come le card delle stanze)</span>
+        <input type="text" id="f_path" value="${(c.path || "").replace(/"/g, "&quot;")}" placeholder="/dashboard-tablet/nome-vista">
+      </div>
       <div class="row" id="f_climaterow" ${c.icon_type === "climate" ? "" : "hidden"}>
         <div class="fld"><label>Soglia freddo (°C)</label><input type="number" id="f_sfreddo" value="${c.soglia_freddo ?? 18}"></div>
         <div class="fld"><label>Soglia caldo (°C)</label><input type="number" id="f_scaldo" value="${c.soglia_caldo ?? 26}"></div>
@@ -1257,7 +1271,7 @@ class MiniCardEditor extends HTMLElement {
             <option value="14"${c.storico_giorni == 14 ? " selected" : ""}>14 giorni</option>
             <option value="30"${c.storico_giorni == 30 ? " selected" : ""}>30 giorni</option></select></div>
       </div>
-      <div class="note">💡 Scrivendo il nome (es. "Forno", "Bagno", "Giardino") l'icona giusta viene suggerita da sola — se la cambi a mano dal menu, resta quella scelta. Scegliendo il Dispositivo, i sensori proposti sono solo i suoi, non più indovinati dal nome su tutta casa. Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Tocca la card per vedere lo storico consumi (serve il sensore di potenza); il badge on/off accende/spegne direttamente; il pulsante ⚙ apre le informazioni/impostazioni native di Home Assistant (per un climatizzatore, il telecomando completo).</div>
+      <div class="note">💡 Scrivendo il nome (es. "Forno", "Bagno", "Giardino") l'icona giusta viene suggerita da sola — se la cambi a mano dal menu, resta quella scelta. Scegliendo il Dispositivo, i sensori proposti sono solo i suoi, non più indovinati dal nome su tutta casa. Card pensata piccola per il telefono: usa la scheda "Layout" per allargarla/restringerla — icona e testo si adattano da soli. Tocca la card per vedere lo storico consumi (serve il sensore di potenza) — a meno che tu non abbia impostato un Collegamento, nel qual caso ti porta lì; il badge on/off accende/spegne direttamente; il pulsante ⚙ apre le informazioni/impostazioni native di Home Assistant (per un climatizzatore, il telecomando completo).</div>
     </div>`;
     const on = (id, ev, fn) => { const el = this.querySelector(id); if (el) el.addEventListener(ev, fn); };
     on("#f_name", "input", e => {
@@ -1319,6 +1333,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_scaldo", "change", e => this._set("soglia_caldo", parseFloat(String(e.target.value).replace(",", ".")) || 26));
     on("#f_price", "change", e => this._set("prezzo_kwh", parseFloat(String(e.target.value).replace(",", ".")) || 0.30));
     on("#f_days", "change", e => this._set("storico_giorni", parseInt(e.target.value) || 14));
+    on("#f_path", "input", e => this._set("path", e.target.value.trim()));
   }
 }
 customElements.define("mini-card-editor", MiniCardEditor);
