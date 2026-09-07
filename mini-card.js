@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.2.0";
+const MC_VERSION = "1.3.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13,10 +13,33 @@ console.info(`%c MINI-CARD %c v${MC_VERSION} `,
 const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 const MC_DEFAULTS = {
-  name: "Dispositivo", icon_type: "generic",
+  name: "Dispositivo", icon_type: "generic", custom_icon_svg: "",
   power: "", energy: "", switch: "", temp: "", humidity: "",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
 };
+
+// Un contatore per pagina, non per card: garantisce un suffisso diverso a
+// ogni istanza anche se due card usano LO STESSO SVG incollato (altrimenti
+// gli id dei gradienti si scontrerebbero e una card "ruberebbe" i colori
+// all'altra — lo stesso bug già visto nelle card sorelle di questa famiglia).
+let _mcCustomIconSeq = 0;
+
+// Un'icona personalizzata (incollata dal "Creatore Icone") può portare i
+// suoi <linearGradient>/<radialGradient> con id qualsiasi — rinominiamo id
+// e riferimenti url(#...) con un suffisso unico per istanza, così l'icona
+// resta sicura anche se compare più volte sulla stessa dashboard.
+function mcNamespaceCustomSvg(svg) {
+  const suffix = `_mci${(_mcCustomIconSeq++).toString(36)}`;
+  const ids = new Set();
+  svg.replace(/\bid="([^"]+)"/g, (_, id) => { ids.add(id); return ""; });
+  let out = svg;
+  for (const id of ids) {
+    const safe = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`id="${safe}"`, "g"), `id="${id}${suffix}"`)
+             .replace(new RegExp(`url\\(#${safe}\\)`, "g"), `url(#${id}${suffix})`);
+  }
+  return out;
+}
 
 // Etichette leggibili per il picker visivo nell'editor (niente emoji come
 // "icona": qui sono solo la didascalia sotto l'anteprima disegnata vera).
@@ -574,6 +597,18 @@ const MC_ICON_RENDER = {
 };
 function mcIconFor(type) { return (MC_ICON_RENDER[type] || mcIconGeneric)(); }
 
+// Segnaposto per il pulsante "Personalizzata" nella griglia dell'editor —
+// non è un'icona del pacchetto, solo un simbolo (tavolozza) che apre il
+// campo per incollare l'SVG creato col Creatore Icone.
+const MC_CUSTOM_BADGE_SVG = `
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="mcCustomBadge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb020"/><stop offset="1" stop-color="#47b5ff"/></linearGradient></defs>
+  <path d="M50 12 A38 38 0 1 0 88 50 C88 44 84 40 78 40 L68 40 C63 40 60 36 60 32 C60 20 56 12 50 12 Z" fill="url(#mcCustomBadge)" opacity=".85"/>
+  <circle cx="36" cy="42" r="6" fill="#1c212b" opacity=".55"/>
+  <circle cx="34" cy="62" r="6" fill="#1c212b" opacity=".55"/>
+  <circle cx="56" cy="70" r="6" fill="#1c212b" opacity=".55"/>
+</svg>`;
+
 // Impedisce a librerie tipo "hass-swipe-navigation" di leggere un tocco dentro
 // la card come uno swipe di cambio-vista. In modalità modifica dashboard
 // (URL con "edit=1") non blocchiamo nulla, altrimenti l'editor di HA non
@@ -679,7 +714,13 @@ class MiniCard extends HTMLElement {
   }
 
   // Pacchetto icone condiviso (14 disegni curati, vedi funzioni mcIcon* sopra).
-  _icon() { return mcIconFor(this._cfg.icon_type); }
+  // Un'icona incollata (dal Creatore Icone o a mano) ha sempre la priorità:
+  // rende il pacchetto di 20 tipi un punto di partenza, non un tetto.
+  _icon() {
+    const custom = (this._cfg.custom_icon_svg || "").trim();
+    if (custom) return mcNamespaceCustomSvg(custom);
+    return mcIconFor(this._cfg.icon_type);
+  }
 
   _build() {
     this.innerHTML = `
@@ -828,15 +869,23 @@ class MiniCard extends HTMLElement {
         .filter(Boolean).join(" · ");
     } else sub.hidden = true;
 
-    if (cfg.icon_type === "climate" && t != null) {
+    if (t != null) {
+      // L'altezza del mercurio funziona su QUALSIASI icona (anche personalizzata)
+      // che porti un elemento con data-role="mercury" — non serve conoscerne
+      // i gradienti. Il cambio colore caldo/freddo invece punta a id fissi
+      // (mcMercuryComfy ecc.) che esistono solo nell'icona "climate" nativa:
+      // un'icona incollata ha id namespaced diversi, quindi quello scatta
+      // solo per icon_type==="climate".
       const mercury = this._el.querySelector('[data-role="mercury"]');
       const bulb = this._el.querySelector('[data-role="bulb"]');
-      if (mercury && bulb) {
+      if (mercury) {
         const lo = 5, hi = 35, bottom = 76, minH = 6, maxH = 46;
         const frac = Math.min(1, Math.max(0, (t - lo) / (hi - lo)));
         const hgt = minH + frac * (maxH - minH);
         mercury.setAttribute("height", hgt.toFixed(1));
         mercury.setAttribute("y", (bottom - hgt).toFixed(1));
+      }
+      if (cfg.icon_type === "climate" && mercury && bulb) {
         const freddo = parseFloat(cfg.soglia_freddo), caldo = parseFloat(cfg.soglia_caldo);
         let cls = "Comfy";
         if (!isNaN(freddo) && t < freddo) cls = "Cold";
@@ -1007,10 +1056,15 @@ class MiniCardEditor extends HTMLElement {
     });
   }
 
-  _iconGridHTML(sel) {
+  _iconGridHTML(sel, hasCustom) {
     const types = Object.keys(MC_ICON_RENDER);
-    return `<div class="mc-icongrid">${types.map(t => `
-      <button type="button" class="mc-iconbtn${t === sel ? " sel" : ""}" data-icon="${t}" title="${MC_ICON_LABELS[t]}">
+    const customBtn = `
+      <button type="button" class="mc-iconbtn${hasCustom ? " sel" : ""}" data-icon="custom" title="Personalizzata">
+        <span class="mc-iconbtn-wrap">${MC_CUSTOM_BADGE_SVG}</span>
+        <span class="mc-iconbtn-lbl">Personalizzata</span>
+      </button>`;
+    return `<div class="mc-icongrid">${customBtn}${types.map(t => `
+      <button type="button" class="mc-iconbtn${!hasCustom && t === sel ? " sel" : ""}" data-icon="${t}" title="${MC_ICON_LABELS[t]}">
         <span class="mc-iconbtn-wrap">${mcIconFor(t)}</span>
         <span class="mc-iconbtn-lbl">${MC_ICON_LABELS[t]}</span>
       </button>`).join("")}</div>`;
@@ -1049,10 +1103,25 @@ class MiniCardEditor extends HTMLElement {
       .mc-opt:hover{background:rgba(var(--rgb-primary-color,3,169,244),.14)}
       .mc-opt small{display:block;font-size:10px;color:var(--secondary-text-color);margin-top:1px}
       .mc-opt-empty{color:var(--secondary-text-color);cursor:default}
+      .mc-svgbox{min-height:90px;font-family:monospace;font-size:12px;resize:vertical}
+      .mc-svgpreview{width:56px;height:56px;padding:6px;border:1px solid var(--divider-color);border-radius:10px;
+        display:flex;align-items:center;justify-content:center;background:var(--card-background-color)}
+      .mc-svgpreview svg{width:100%;height:100%}
+      .mc-svgrow{display:flex;gap:10px;align-items:flex-start}
+      .mc-svgrow textarea{flex:1}
+      .mc-creator-link{font-size:12px;font-weight:700;color:var(--primary-color);text-decoration:none}
     </style>
     <div class="mce">
       <div class="fld"><label>Nome</label><input type="text" id="f_name" value="${(c.name || "").replace(/"/g, "&quot;")}"></div>
-      <div class="fld"><label>Icona</label>${this._iconGridHTML(c.icon_type)}</div>
+      <div class="fld"><label>Icona</label>${this._iconGridHTML(c.icon_type, !!(c.custom_icon_svg || "").trim())}</div>
+      <div class="fld" id="f_customwrap" ${(c.custom_icon_svg || "").trim() ? "" : "hidden"}>
+        <label>Codice SVG dell'icona personalizzata</label>
+        <span class="h">Incolla qui il codice generato dal <b>Creatore Icone</b> — usa lo stesso stile delle 20 icone del pacchetto.</span>
+        <div class="mc-svgrow">
+          <textarea id="f_customsvg" class="mc-svgbox" placeholder="&lt;svg viewBox=&quot;0 0 100 100&quot;&gt;...&lt;/svg&gt;">${this._esc(c.custom_icon_svg || "")}</textarea>
+          <div class="mc-svgpreview" id="f_custompreview">${(c.custom_icon_svg || "").trim() ? c.custom_icon_svg : ""}</div>
+        </div>
+      </div>
       ${this._pickerHTML("switch", ["switch.", "light.", "input_boolean."], c.switch, "Presa/interruttore/luce — opzionale")}
       ${this._pickerHTML("power", ["sensor."], c.power, "Sensore potenza (W) — opzionale", "senza presa: sopra questa soglia la card si mostra \"accesa\"; abilita anche lo storico consumi")}
       <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
@@ -1104,8 +1173,25 @@ class MiniCardEditor extends HTMLElement {
     this.querySelectorAll(".mc-iconbtn").forEach(btn => btn.addEventListener("click", () => {
       this._iconManuallySet = true;
       this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b === btn));
-      this._set("icon_type", btn.dataset.icon);
+      const customWrap = this.querySelector("#f_customwrap");
+      if (btn.dataset.icon === "custom") {
+        if (customWrap) customWrap.hidden = false;
+        // Non tocchiamo icon_type finché non c'è davvero un SVG incollato:
+        // altrimenti una card senza SVG mostrerebbe un tipo "custom" vuoto.
+        const svg = this.querySelector("#f_customsvg");
+        if (svg && svg.value.trim()) this._set("custom_icon_svg", svg.value);
+      } else {
+        if (customWrap) customWrap.hidden = true;
+        this._config = Object.assign({}, this._config, { custom_icon_svg: "", icon_type: btn.dataset.icon });
+        this._emit();
+      }
     }));
+    on("#f_customsvg", "input", e => {
+      const svg = e.target.value;
+      const preview = this.querySelector("#f_custompreview");
+      if (preview) preview.innerHTML = svg.trim();
+      this._set("custom_icon_svg", svg);
+    });
     this.querySelectorAll(".mc-picker").forEach(p => this._wirePicker(p));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
@@ -1120,7 +1206,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "mini-card",
   name: "Mini Card",
-  description: "Tessera piccola e personalizzabile per un dispositivo o una stanza: 20 icone curate con anteprima vera, sensori con ricerca, e auto-abbinamento (scrivi \"Lavatrice\" e trova da sola presa/sensore giusti). Pensata per il telefono, si adatta se la allarghi.",
+  description: "Tessera piccola e personalizzabile per un dispositivo o una stanza: 20 icone curate + icone personalizzate illimitate (crea le tue con la Fucina Icone), sensori con ricerca, e auto-abbinamento (scrivi \"Lavatrice\" e trova da sola presa/sensore giusti). Pensata per il telefono, si adatta se la allarghi.",
   preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-mini-card",
 });
