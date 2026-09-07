@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.3.0";
+const MC_VERSION = "1.3.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1116,7 +1116,7 @@ class MiniCardEditor extends HTMLElement {
       <div class="fld"><label>Icona</label>${this._iconGridHTML(c.icon_type, !!(c.custom_icon_svg || "").trim())}</div>
       <div class="fld" id="f_customwrap" ${(c.custom_icon_svg || "").trim() ? "" : "hidden"}>
         <label>Codice SVG dell'icona personalizzata</label>
-        <span class="h">Incolla qui il codice generato dal <b>Creatore Icone</b> — usa lo stesso stile delle 20 icone del pacchetto.</span>
+        <span class="h">Incolla qui il codice generato dalla <a class="mc-creator-link" href="https://claude.ai/code/artifact/a536cdbd-3027-4f7a-8216-34fb6f11ce30" target="_blank" rel="noopener">Fucina Icone ↗</a> — usa lo stesso stile delle 20 icone del pacchetto.</span>
         <div class="mc-svgrow">
           <textarea id="f_customsvg" class="mc-svgbox" placeholder="&lt;svg viewBox=&quot;0 0 100 100&quot;&gt;...&lt;/svg&gt;">${this._esc(c.custom_icon_svg || "")}</textarea>
           <div class="mc-svgpreview" id="f_custompreview">${(c.custom_icon_svg || "").trim() ? c.custom_icon_svg : ""}</div>
