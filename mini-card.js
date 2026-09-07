@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.7.0";
+const MC_VERSION = "1.7.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -764,9 +764,11 @@ class MiniCard extends HTMLElement {
       .mc-iconwrap{width:44px;height:44px;flex:0 0 auto}
       /* Card "Stanza": icona panoramica invece di quadrata (i disegni di
          ambiente/scena sono larghi, es. 500x350 — schiacciati in un quadrato
-         diventavano illeggibili). Solo per data-mode="room": le card
-         "Dispositivo" restano quadrate come sempre. */
-      .mc-card[data-mode="room"] .mc-iconwrap{width:100px;height:auto;aspect-ratio:10/7}
+         diventavano illeggibili). Larghezza legata a quella vera della card
+         (min(...)) invece di soglie fisse: su una card larga (es. 12 colonne)
+         restava piccola con tanto vuoto intorno anche nella versione precedente. */
+      .mc-card[data-mode="room"]{padding:16px 14px;gap:7px;justify-content:flex-start}
+      .mc-card[data-mode="room"] .mc-iconwrap{width:min(85cqw,340px);height:auto;aspect-ratio:10/7;margin-bottom:2px}
       .mc-svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 7px rgba(0,0,0,.35))}
       .mc-name{font-size:11px;font-weight:800;margin-top:2px;text-align:center;line-height:1.2;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -787,17 +789,14 @@ class MiniCard extends HTMLElement {
       @container mc (min-width:130px){
         .mc-iconwrap{width:56px;height:56px} .mc-name{font-size:12.5px} .mc-badge{font-size:9.5px;padding:3px 9px}
         .mc-state{font-size:10.5px} .mc-sub{font-size:10px} .mc-metric{font-size:14px}
-        .mc-card[data-mode="room"] .mc-iconwrap{width:130px;height:auto}
       }
       @container mc (min-width:170px){
         .mc-iconwrap{width:72px;height:72px} .mc-name{font-size:14px} .mc-badge{font-size:10px;padding:3px 10px}
         .mc-state{font-size:11.5px} .mc-sub{font-size:10.5px} .mc-metric{font-size:17px}
-        .mc-card[data-mode="room"] .mc-iconwrap{width:165px;height:auto}
       }
       @container mc (min-width:220px){
         .mc-iconwrap{width:88px;height:88px} .mc-name{font-size:15.5px} .mc-badge{font-size:10.5px;padding:4px 12px}
         .mc-state{font-size:12.5px} .mc-sub{font-size:11.5px} .mc-metric{font-size:20px}
-        .mc-card[data-mode="room"] .mc-iconwrap{width:200px;height:auto}
       }
       .mc-glow{opacity:.12;transition:opacity .5s}
       .mc-card.on .mc-glow{opacity:1;animation:mc-pulse 2.6s ease-in-out infinite}
