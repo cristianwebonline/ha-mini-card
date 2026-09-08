@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.15.0";
+const MC_VERSION = "1.16.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -945,10 +945,22 @@ class MiniCard extends HTMLElement {
       @keyframes mc-pulse{0%,100%{opacity:.6}50%{opacity:1}}
       .mc-screen,.mc-bolt{opacity:.25;transition:opacity .4s}
       .mc-card.on .mc-screen{opacity:.8}
-      .mc-card.lavora .mc-screen{opacity:1;animation:mc-pulse-fast 2s ease-in-out infinite}
+      /* Uno schermo acceso non pulsa: resta acceso con un filo di vibrazione,
+         come la luce di un display vero. */
+      .mc-card.lavora .mc-screen{opacity:1;animation:mc-schermo 4s ease-in-out infinite}
+      @keyframes mc-schermo{0%,100%{opacity:1}50%{opacity:.82}}
       .mc-card.on .mc-bolt{opacity:.7}
-      .mc-card.lavora .mc-bolt{opacity:1;filter:drop-shadow(0 0 5px #ffb020);animation:mc-pulse-fast 1.8s ease-in-out infinite}
-      @keyframes mc-pulse-fast{0%,100%{opacity:.75}50%{opacity:1}}
+      /* Un LED lampeggia, non sfuma: acceso, spento, acceso. Con la sfumatura
+         dal 75 al 100 per cento non si vedeva NIENTE — ed e esattamente il
+         motivo per cui le stanze sembravano ferme anche quando l'animazione
+         stava andando. Su una sveglia sono i due punti che battono i secondi,
+         su un frigo o un allarme e la spia. */
+      .mc-card.lavora .mc-bolt{opacity:1;filter:drop-shadow(0 0 5px #ffb020);
+        animation:mc-led 1.6s steps(1,end) infinite}
+      @keyframes mc-led{0%,48%{opacity:1}52%,100%{opacity:.16}}
+      /* Anche le sfumature vere partono da molto piu in basso, senno sono
+         movimenti che solo un grafico con il righello puo accorgersi. */
+      @keyframes mc-pulse-fast{0%,100%{opacity:.42}50%{opacity:1}}
       [data-role="mercury"]{transition:height .6s ease,y .6s ease}
       .mc-steam{opacity:0;transition:opacity .4s}
       .mc-card.lavora .mc-steam{opacity:.85;animation:mc-steam-rise 2.2s ease-in-out infinite}
@@ -958,7 +970,13 @@ class MiniCard extends HTMLElement {
       @keyframes mc-water-fall{0%{opacity:0;transform:translateY(-4px)}50%{opacity:.9}100%{opacity:0;transform:translateY(6px)}}
       .mc-bulb2{opacity:.3;transition:opacity .4s}
       .mc-card.on .mc-bulb2{opacity:.8;filter:drop-shadow(0 0 4px #ffd166)}
-      .mc-card.lavora .mc-bulb2{opacity:1;filter:drop-shadow(0 0 6px #ffd166);animation:mc-pulse-fast 2.4s ease-in-out infinite}
+      /* Una lampada accesa respira: l'alone si allarga e si stringe piano.
+         Il filtro fa parte dell'animazione, senno resta fisso e si muove solo
+         la trasparenza — che era il difetto di prima. */
+      .mc-card.lavora .mc-bulb2{animation:mc-lampada 3.4s ease-in-out infinite}
+      @keyframes mc-lampada{
+        0%,100%{opacity:.66;filter:drop-shadow(0 0 2px #ffd166)}
+        50%{opacity:1;filter:drop-shadow(0 0 11px #ffd166)}}
       .mc-heat{opacity:.12;transition:opacity .4s}
       .mc-card.on .mc-heat{opacity:.55}
       .mc-card.lavora .mc-heat{opacity:1;filter:drop-shadow(0 0 6px #ff6a3d);animation:mc-pulse-fast 2.2s ease-in-out infinite}
