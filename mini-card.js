@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.11.0";
+const MC_VERSION = "1.12.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -832,7 +832,20 @@ class MiniCard extends HTMLElement {
       .mc-card.quadrata::before{border-radius:16px}
       @container mc (max-width:120px){
         .mc-card.quadrata .mc-iconwrap{width:28px;height:28px}
-        .mc-card.quadrata .mc-sub,.mc-card.quadrata .mc-metric{display:none}
+        .mc-card.quadrata:not([data-mode="room"]) .mc-sub,
+        .mc-card.quadrata:not([data-mode="room"]) .mc-metric{display:none}
+        /* Su una STANZA no: temperatura e umidita sono tutto quello che la
+           card ha da dire, ed e il motivo per cui le hai messo i sensori.
+           Sparivano appena la card scendeva sotto i 120px, cioe sempre, con
+           tre o quattro stanze in fila sul telefono. Si stringono, non si
+           tolgono, e vanno a capo invece di essere tagliate. */
+        .mc-card.quadrata[data-mode="room"] .mc-sub{font-size:7.5px;line-height:1.25;
+          white-space:normal;opacity:.95}
+      }
+      /* "Apri la vista" e ovvio (la card si tocca e ci porta): su una stanza
+         stretta quella riga rubava lo spazio alla temperatura. */
+      @container mc (max-width:150px){
+        .mc-card[data-mode="room"] .mc-state{display:none}
       }
       /* Card "Stanza": icona panoramica invece di quadrata (i disegni di
          ambiente/scena sono larghi, es. 500x350 — schiacciati in un quadrato
@@ -1042,6 +1055,16 @@ class MiniCard extends HTMLElement {
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
     const soglia = parseFloat(cfg.soglia) || 10;
+    // UNA STANZA NON E' UN APPARECCHIO. Non ha una presa da staccare, quindi
+    // finiva sempre in "staccata" e l'icona non si animava MAI: le stanze
+    // restavano disegni fermi. Una stanza esiste sempre, quindi e sempre viva.
+    // Se pero le hai dato un sensore di consumo, allora si comporta come un
+    // apparecchio e l'animazione segue quello: la stanza si "accende" quando
+    // dentro si sta consumando davvero.
+    if (cfg.mode === "room") {
+      if (cfg.power) return (p != null && p > soglia) ? "lavora" : "attesa";
+      return "lavora";
+    }
     if (sw && sw.state !== "on") return "staccata";
     if (cfg.power) {
       const consuma = p != null && p > soglia;
