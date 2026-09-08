@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.12.0";
+const MC_VERSION = "1.13.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -811,6 +811,12 @@ class MiniCard extends HTMLElement {
         border-radius:18px;padding:10px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;
         gap:2px;backdrop-filter:blur(14px);box-shadow:0 8px 20px rgba(0,0,0,.32);position:relative;overflow:hidden;
         transition:background-color .5s ease,border-color .5s ease;cursor:pointer}
+      /* Un elemento con display: dichiarato da una classe IGNORA l'attributo
+         hidden: il codice lo nascondeva, il CSS lo riaccendeva. E' cosi che
+         sulle stanze restava quel pallino col trattino — il tasto acceso/spento
+         di un apparecchio che una stanza non ha. Stessa trappola gia vista
+         sulla card sicurezza: si chiude una volta per tutte, qui. */
+      .mc [hidden]{display:none!important}
       .mc-card::before{content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;
         background:radial-gradient(120% 60% at 50% -10%,rgba(255,255,255,.06),transparent 60%)}
       .mc-iconwrap{width:44px;height:44px;flex:0 0 auto}
@@ -825,35 +831,58 @@ class MiniCard extends HTMLElement {
       .mc-card.piccola .mc-metric{font-size:10.5px}
       .mc-card.piccola::before{border-radius:14px}
       .mc-card.quadrata{aspect-ratio:1;padding:6px;border-radius:16px;gap:1px;flex:0 0 auto;width:100%}
-      .mc-card.quadrata .mc-iconwrap{width:34px;height:34px}
-      .mc-card.quadrata .mc-name{font-size:10px;margin-top:2px}
+      .mc-card.quadrata:not([data-mode="room"]) .mc-iconwrap{width:34px;height:34px}
+      .mc-card.quadrata:not([data-mode="room"]) .mc-name{font-size:10px;margin-top:2px}
       .mc-card.quadrata .mc-state,.mc-card.quadrata .mc-sub{font-size:8.5px}
       .mc-card.quadrata .mc-metric{font-size:11px}
       .mc-card.quadrata::before{border-radius:16px}
       @container mc (max-width:120px){
-        .mc-card.quadrata .mc-iconwrap{width:28px;height:28px}
-        .mc-card.quadrata:not([data-mode="room"]) .mc-sub,
-        .mc-card.quadrata:not([data-mode="room"]) .mc-metric{display:none}
+        .mc-card.quadrata:not([data-mode="room"]) .mc-iconwrap{width:28px;height:28px}
         /* Su una STANZA no: temperatura e umidita sono tutto quello che la
            card ha da dire, ed e il motivo per cui le hai messo i sensori.
-           Sparivano appena la card scendeva sotto i 120px, cioe sempre, con
-           tre o quattro stanze in fila sul telefono. Si stringono, non si
-           tolgono, e vanno a capo invece di essere tagliate. */
-        .mc-card.quadrata[data-mode="room"] .mc-sub{font-size:7.5px;line-height:1.25;
-          white-space:normal;opacity:.95}
-      }
-      /* "Apri la vista" e ovvio (la card si tocca e ci porta): su una stanza
-         stretta quella riga rubava lo spazio alla temperatura. */
-      @container mc (max-width:150px){
-        .mc-card[data-mode="room"] .mc-state{display:none}
+           La misura la governa il blocco delle stanze, qui sotto. */
+        .mc-card.quadrata:not([data-mode="room"]) .mc-sub,
+        .mc-card.quadrata:not([data-mode="room"]) .mc-metric{display:none}
       }
       /* Card "Stanza": icona panoramica invece di quadrata (i disegni di
          ambiente/scena sono larghi, es. 500x350 — schiacciati in un quadrato
          diventavano illeggibili). Larghezza legata a quella vera della card
          (min(...)) invece di soglie fisse: su una card larga (es. 12 colonne)
          restava piccola con tanto vuoto intorno anche nella versione precedente. */
-      .mc-card[data-mode="room"]{padding:16px 14px;gap:7px;justify-content:flex-start}
-      .mc-card[data-mode="room"] .mc-iconwrap{width:min(85cqw,340px);height:auto;aspect-ratio:10/7;margin-bottom:2px}
+      /* L'icona riempie TUTTA la card e le scritte le stanno sopra, come la
+         copertina di un album. Prima l'icona era un riquadro in mezzo e nome,
+         stato e dati si mettevano in fila sotto: su una card quadrata non ci
+         stavano, e siccome la card taglia quello che esce (overflow:hidden),
+         il nome spariva — mentre nella card accanto, che aveva meno roba da
+         dire, si vedeva. Cosi non c'e piu niente in fila: l'immagine sta
+         sotto, il testo sopra, e nessuno dei due ruba spazio all'altro.
+         Le misure sono in cqw (percentuale della larghezza della card), quindi
+         il testo cresce e cala da solo con la dimensione della tessera. */
+      .mc-card[data-mode="room"]{padding:0;gap:0;justify-content:flex-end;align-items:stretch}
+      .mc-card[data-mode="room"] .mc-iconwrap{position:absolute;inset:0;width:100%;height:100%;
+        margin:0;aspect-ratio:auto;z-index:0}
+      .mc-card[data-mode="room"] .mc-svg{width:100%;height:100%;filter:none}
+      /* La velatura scura dal basso: serve a leggere il testo qualunque cosa
+         ci sia disegnato sotto, chiara o scura che sia. */
+      .mc-card[data-mode="room"]::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+        background:linear-gradient(to top,rgba(4,8,14,.94) 0%,rgba(4,8,14,.78) 24%,
+          rgba(4,8,14,.22) 50%,rgba(4,8,14,0) 70%)}
+      .mc-card[data-mode="room"] .mc-name{position:relative;z-index:2;margin:0;padding:0 9px;
+        font-size:clamp(10.5px,7.4cqw,19px);line-height:1.15;color:#fff;
+        white-space:normal;text-shadow:0 1px 5px rgba(0,0,0,.9)}
+      .mc-card[data-mode="room"] .mc-sub{position:relative;z-index:2;padding:3px 9px 9px;
+        font-size:clamp(7.5px,4.3cqw,12.5px);line-height:1.3;white-space:normal;
+        color:rgba(255,255,255,.92);text-shadow:0 1px 4px rgba(0,0,0,.9)}
+      /* Su una stanza non hanno senso: il tasto acceso/spento (non ha una
+         presa), "Apri la vista" (la card si tocca e ci porta, si capisce), e
+         i watt (che stanno gia nella riga dei dati). */
+      .mc-card[data-mode="room"] .mc-badge,
+      .mc-card[data-mode="room"] .mc-state,
+      .mc-card[data-mode="room"] .mc-metric{display:none!important}
+      .mc-card[data-mode="room"] .mc-info{z-index:3}
+      /* Il velo verde di "sta consumando" su una foto a tutta card sarebbe
+         una patina addosso al disegno: sulle stanze resta appena accennato. */
+      .mc-card[data-mode="room"].on.lavora{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07))}
       .mc-svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 7px rgba(0,0,0,.35))}
       .mc-name{font-size:11px;font-weight:800;margin-top:2px;text-align:center;line-height:1.2;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -994,6 +1023,13 @@ class MiniCard extends HTMLElement {
     </div>`;
     stopSwipeNavHijack(this.querySelector(".mc"));
     this._el = this.querySelector(".mc-card");
+    // Un disegno d'ambiente e largo (800x500, 1000x600): dentro una tessera
+    // quadrata ci starebbe con due bande vuote sopra e sotto. "slice" gli dice
+    // di riempire e farsi ritagliare ai bordi, come una foto di copertina.
+    if (this._cfg.mode === "room") {
+      const svg = this._el.querySelector(".mc-iconwrap svg");
+      if (svg) svg.setAttribute("preserveAspectRatio", "xMidYMid slice");
+    }
     this._el.addEventListener("click", e => {
       if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')) return;
       if (this._cfg.path) { this._navigate(this._cfg.path); return; }
