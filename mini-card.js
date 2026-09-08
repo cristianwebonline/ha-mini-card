@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.8.1";
+const MC_VERSION = "1.9.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -775,7 +775,8 @@ class MiniCard extends HTMLElement {
       .mc-badge{display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;margin-top:2px;
         font-size:8.5px;font-weight:800;letter-spacing:.2px;background:rgba(255,255,255,.06);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
       .mc-badge .dot{width:5px;height:5px;border-radius:50%;background:#5a6572;flex:0 0 auto}
-      .mc-badge[data-on="1"]{background:rgba(56,224,138,.16);border-color:rgba(56,224,138,.45);color:#8ff0b4;animation:mc-blink 3s ease-in-out infinite}
+      .mc-badge[data-on="1"]{background:rgba(56,224,138,.16);border-color:rgba(56,224,138,.45);color:#8ff0b4}
+      .mc-card.lavora .mc-badge[data-on="1"]{animation:mc-blink 3s ease-in-out infinite}
       .mc-badge[data-on="1"] .dot{background:#38e08a;box-shadow:0 0 5px #38e08a}
       .mc-badge[data-on="0"] .dot{background:#5a6572}
       @keyframes mc-blink{0%,100%{opacity:1}50%{opacity:.55}}
@@ -784,7 +785,10 @@ class MiniCard extends HTMLElement {
          chiaro (pannello Faber Home di giorno) diventava quasi bianca, con il
          testo bianco sopra: illeggibile. Cosi il pannello resta scuro quanto
          serve su qualunque sfondo. */
-      .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.14),rgba(56,224,138,.14));border-color:rgba(56,224,138,.34)}
+      /* Acceso ma fermo: una velatura appena accennata. In funzione: piena.
+         Cosi si distingue con un'occhiata, senza leggere. */
+      .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07));border-color:rgba(56,224,138,.22)}
+      .mc-card.on.lavora{background-image:linear-gradient(rgba(56,224,138,.14),rgba(56,224,138,.14));border-color:rgba(56,224,138,.34)}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
       .mc-card.on .mc-state{color:#8ff0b4}
       .mc-sub{font-size:9px;color:var(--mc-muted);margin-top:-1px}
@@ -804,28 +808,34 @@ class MiniCard extends HTMLElement {
         .mc-state{font-size:12.5px} .mc-sub{font-size:11.5px} .mc-metric{font-size:20px}
       }
       .mc-glow{opacity:.12;transition:opacity .5s}
-      .mc-card.on .mc-glow{opacity:1;animation:mc-pulse 2.6s ease-in-out infinite}
+      .mc-card.on .mc-glow{opacity:.75}
+      .mc-card.lavora .mc-glow{opacity:1;animation:mc-pulse 2.6s ease-in-out infinite}
       @keyframes mc-pulse{0%,100%{opacity:.6}50%{opacity:1}}
       .mc-screen,.mc-bolt{opacity:.25;transition:opacity .4s}
-      .mc-card.on .mc-screen{opacity:1;animation:mc-pulse-fast 2s ease-in-out infinite}
-      .mc-card.on .mc-bolt{opacity:1;filter:drop-shadow(0 0 5px #ffb020);animation:mc-pulse-fast 1.8s ease-in-out infinite}
+      .mc-card.on .mc-screen{opacity:.8}
+      .mc-card.lavora .mc-screen{opacity:1;animation:mc-pulse-fast 2s ease-in-out infinite}
+      .mc-card.on .mc-bolt{opacity:.7}
+      .mc-card.lavora .mc-bolt{opacity:1;filter:drop-shadow(0 0 5px #ffb020);animation:mc-pulse-fast 1.8s ease-in-out infinite}
       @keyframes mc-pulse-fast{0%,100%{opacity:.75}50%{opacity:1}}
       [data-role="mercury"]{transition:height .6s ease,y .6s ease}
       .mc-steam{opacity:0;transition:opacity .4s}
-      .mc-card.on .mc-steam{opacity:.85;animation:mc-steam-rise 2.2s ease-in-out infinite}
+      .mc-card.lavora .mc-steam{opacity:.85;animation:mc-steam-rise 2.2s ease-in-out infinite}
       @keyframes mc-steam-rise{0%{opacity:0;transform:translateY(4px)}40%{opacity:.85}100%{opacity:0;transform:translateY(-10px)}}
       .mc-water{opacity:0;transition:opacity .4s}
-      .mc-card.on .mc-water{opacity:.85;animation:mc-water-fall 1s linear infinite}
+      .mc-card.lavora .mc-water{opacity:.85;animation:mc-water-fall 1s linear infinite}
       @keyframes mc-water-fall{0%{opacity:0;transform:translateY(-4px)}50%{opacity:.9}100%{opacity:0;transform:translateY(6px)}}
       .mc-bulb2{opacity:.3;transition:opacity .4s}
-      .mc-card.on .mc-bulb2{opacity:1;filter:drop-shadow(0 0 6px #ffd166);animation:mc-pulse-fast 2.4s ease-in-out infinite}
+      .mc-card.on .mc-bulb2{opacity:.8;filter:drop-shadow(0 0 4px #ffd166)}
+      .mc-card.lavora .mc-bulb2{opacity:1;filter:drop-shadow(0 0 6px #ffd166);animation:mc-pulse-fast 2.4s ease-in-out infinite}
       .mc-heat{opacity:.12;transition:opacity .4s}
-      .mc-card.on .mc-heat{opacity:1;filter:drop-shadow(0 0 6px #ff6a3d);animation:mc-pulse-fast 2.2s ease-in-out infinite}
+      .mc-card.on .mc-heat{opacity:.55}
+      .mc-card.lavora .mc-heat{opacity:1;filter:drop-shadow(0 0 6px #ff6a3d);animation:mc-pulse-fast 2.2s ease-in-out infinite}
       .mc-fan-blades{transition:opacity .3s}
-      .mc-card.on .mc-fan-blades{animation:mc-fan-spin 1.1s linear infinite}
+      .mc-card.lavora .mc-fan-blades{animation:mc-fan-spin 1.1s linear infinite}
       @keyframes mc-fan-spin{to{transform:rotate(360deg)}}
       .mc-bolt-green{opacity:.25;transition:opacity .4s}
-      .mc-card.on .mc-bolt-green{opacity:1;filter:drop-shadow(0 0 4px #38e08a);animation:mc-pulse-fast 1.6s ease-in-out infinite}
+      .mc-card.on .mc-bolt-green{opacity:.7}
+      .mc-card.lavora .mc-bolt-green{opacity:1;filter:drop-shadow(0 0 4px #38e08a);animation:mc-pulse-fast 1.6s ease-in-out infinite}
       .mc-info{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;z-index:1;
         border:1px solid var(--mc-stroke);background:rgba(255,255,255,.08);color:var(--mc-muted);
         font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
@@ -943,12 +953,42 @@ class MiniCard extends HTMLElement {
     return false;
   }
 
+  // Gli stati sono TRE, non due, e confonderli e' proprio l'errore che si
+  // vedeva: un microonde con la presa accesa e il consumo a zero non sta
+  // scaldando niente, ma l'icona si animava lo stesso come se lavorasse.
+  //   staccata -> la presa e' spenta: l'apparecchio non riceve corrente
+  //   attesa   -> ha corrente ma non sta facendo nulla (consumo sotto soglia)
+  //   lavora   -> sta consumando davvero: e' qui che l'icona si anima
+  // Senza sensore di potenza non si puo' distinguere attesa da lavoro:
+  // acceso vuol dire lavora, com'era prima.
+  _stato() {
+    const cfg = this._cfg;
+    const sw = cfg.switch && this._hass.states[cfg.switch];
+    const p = this._num(cfg.power);
+    const soglia = parseFloat(cfg.soglia) || 10;
+    if (sw && sw.state !== "on") return "staccata";
+    if (cfg.power) {
+      const consuma = p != null && p > soglia;
+      if (sw) return consuma ? "lavora" : "attesa";
+      return consuma ? "lavora" : "staccata";
+    }
+    if (sw) return "lavora";
+    return "staccata";
+  }
+
   // Testo di stato condiviso tra tessera e popup: su una card "Stanza" non
   // ha senso "Attivo/A riposo" (quasi sempre sopra soglia).
   _stateText(on) {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     if (cfg.mode === "room") return cfg.path ? "Apri la vista →" : "";
+    // Con presa E potenza si puo dire la cosa giusta: "presa staccata" e
+    // diverso da "acceso ma fermo", e chi guarda vuole sapere quale dei due.
+    const st = this._stato();
+    if (sw && cfg.power) {
+      if (st === "staccata") return "Presa staccata";
+      return st === "lavora" ? "In funzione" : "Acceso, in attesa";
+    }
     return sw ? (on ? "Accesa" : "Spenta") : (cfg.power ? (on ? "Attivo" : "A riposo") : "");
   }
 
@@ -983,7 +1023,10 @@ class MiniCard extends HTMLElement {
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
     const on = this._isOn();
+    const st = this._stato();
     this._el.classList.toggle("on", on);
+    this._el.classList.toggle("lavora", st === "lavora");
+    this._el.classList.toggle("attesa", st === "attesa");
     this._el.querySelector('[data-role="state"]').textContent = this._stateText(on);
 
     const badge = this._el.querySelector('[data-role="badge"]');
@@ -1048,7 +1091,9 @@ class MiniCard extends HTMLElement {
     let selectedIdx = null;
     const render = () => {
       const on = this._isOn();
-      const heroIconCls = "mc-hero-icon mc-card" + (cfg.mode === "room" ? " mc-hero-icon-room" : "") + (on ? " on" : "");
+      const st = this._stato();
+      const heroIconCls = "mc-hero-icon mc-card" + (cfg.mode === "room" ? " mc-hero-icon-room" : "")
+        + (on ? " on" : "") + (st === "lavora" ? " lavora" : "") + (st === "attesa" ? " attesa" : "");
       const actions = [];
       if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle">⏻ ${on ? "Spegni" : "Accendi"}</button>`);
       if (this._priorityEntity()) actions.push(`<button class="mc-pill" data-act="info">⚙ Informazioni</button>`);
