@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.10.1";
+const MC_VERSION = "1.11.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13,7 +13,7 @@ console.info(`%c MINI-CARD %c v${MC_VERSION} `,
 const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 const MC_DEFAULTS = {
-  name: "Dispositivo", icon_type: "generic", custom_icon_svg: "",
+  name: "Dispositivo", icon_type: "generic", custom_icon_svg: "", custom_icon_id: "",
   power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
   taglia: "normale",
@@ -641,6 +641,43 @@ function mcIconFor(type) { return (MC_ICON_RENDER[type] || mcIconGeneric)(); }
 // Segnaposto per il pulsante "Personalizzata" nella griglia dell'editor —
 // non è un'icona del pacchetto, solo un simbolo (tavolozza) che apre il
 // campo per incollare l'SVG creato col Creatore Icone.
+// LA RACCOLTA DELLE ICONE FATTE IN CASA.
+// Prima un'icona disegnata viveva solo dentro la card in cui era stata
+// incollata: per rimetterla su un'altra card bisognava ritrovare il codice e
+// reincollarlo, e cancellando la card l'icona era persa. Ora si salvano in una
+// raccolta che sta SUL SERVER (le preferenze del frontend di Home Assistant),
+// non nel browser: un'icona disegnata dal telefono si ritrova dal tablet, e
+// svuotare la cache non porta via niente.
+const MC_CHIAVE_ICONE = "faber_icone";
+let MC_ICONE_MIE = null;      // una lettura per sessione, poi si tiene qui
+let MC_ICONE_ATTESA = null;   // se due editor la chiedono insieme, una sola chiamata
+
+async function mcIconeCarica(hass) {
+  if (MC_ICONE_MIE) return MC_ICONE_MIE;
+  if (MC_ICONE_ATTESA) return MC_ICONE_ATTESA;
+  MC_ICONE_ATTESA = (async () => {
+    try {
+      const r = await hass.callWS({ type: "frontend/get_user_data", key: MC_CHIAVE_ICONE });
+      const v = r && r.value;
+      MC_ICONE_MIE = Array.isArray(v && v.icone) ? v.icone : [];
+    } catch (e) {
+      // Meglio nessuna raccolta che un editor che non si apre.
+      console.warn("[mini-card] raccolta icone non leggibile:", e);
+      MC_ICONE_MIE = [];
+    }
+    MC_ICONE_ATTESA = null;
+    return MC_ICONE_MIE;
+  })();
+  return MC_ICONE_ATTESA;
+}
+
+async function mcIconeSalva(hass, icone) {
+  MC_ICONE_MIE = icone;
+  await hass.callWS({ type: "frontend/set_user_data", key: MC_CHIAVE_ICONE, value: { icone } });
+}
+
+function mcIconeId() { return "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
 const MC_CUSTOM_BADGE_SVG = `
 <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
   <defs><linearGradient id="mcCustomBadge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb020"/><stop offset="1" stop-color="#47b5ff"/></linearGradient></defs>
@@ -1015,20 +1052,41 @@ class MiniCard extends HTMLElement {
     return "staccata";
   }
 
+  // COME SI CHIAMA la cosa che si accende. Un interruttore comanda una presa,
+  // una luce o un rele: dire sempre "Accesa" faceva credere che fosse acceso
+  // l'apparecchio, mentre e la presa ad avere corrente. Sono due cose diverse,
+  // e su un microonde si vede subito: presa accesa, forno fermo.
+  _comando() {
+    const cfg = this._cfg;
+    const sw = cfg.switch && this._hass.states[cfg.switch];
+    if (!sw) return null;
+    const dom = String(cfg.switch).split(".")[0];
+    const dc = (sw.attributes && sw.attributes.device_class) || "";
+    if (dom === "light") return { on: "Luce accesa", off: "Luce spenta", giu: "Luce staccata" };
+    if (dom === "input_boolean") return { on: "Comando attivo", off: "Comando spento", giu: "Comando spento" };
+    if (dc === "switch") return { on: "Interruttore acceso", off: "Interruttore spento", giu: "Interruttore spento" };
+    return { on: "Presa accesa", off: "Presa spenta", giu: "Presa staccata" };
+  }
+
   // Testo di stato condiviso tra tessera e popup: su una card "Stanza" non
   // ha senso "Attivo/A riposo" (quasi sempre sopra soglia).
   _stateText(on) {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     if (cfg.mode === "room") return cfg.path ? "Apri la vista →" : "";
-    // Con presa E potenza si puo dire la cosa giusta: "presa staccata" e
-    // diverso da "acceso ma fermo", e chi guarda vuole sapere quale dei due.
+    const c = this._comando();
     const st = this._stato();
+    // Con presa E potenza si sa tutto: se ha corrente e se sta lavorando.
     if (sw && cfg.power) {
-      if (st === "staccata") return "Presa staccata";
-      return st === "lavora" ? "In funzione" : "Acceso, in attesa";
+      if (st === "staccata") return c.giu;
+      // "Acceso, in attesa" diceva acceso dell'apparecchio: e la presa a
+      // essere accesa, l'apparecchio e fermo.
+      return st === "lavora" ? "In funzione" : c.on + ", fermo";
     }
-    return sw ? (on ? "Accesa" : "Spenta") : (cfg.power ? (on ? "Attivo" : "A riposo") : "");
+    // Senza sensore di potenza NON si sa se l'apparecchio lavora: si dice
+    // soltanto quello che si sa, cioe com'e messo l'interruttore.
+    if (sw) return on ? c.on : c.off;
+    return cfg.power ? (on ? "Attivo" : "A riposo") : "";
   }
 
   // Chip informative (temperatura/umidità/consumo oggi/chi consuma di più):
@@ -1074,7 +1132,9 @@ class MiniCard extends HTMLElement {
     if (sw) {
       badge.hidden = false;
       badge.dataset.on = on ? "1" : "0";
-      badge.querySelector(".lbl").textContent = on ? "Accesa" : "Spenta";
+      // Anche qui: "Accesa" da solo sembrava riferito all'apparecchio.
+      const cmd = this._comando();
+      badge.querySelector(".lbl").textContent = cmd ? (on ? cmd.on : cmd.off) : (on ? "Accesa" : "Spenta");
     } else badge.hidden = true;
 
     const metricWrap = this._el.querySelector('[data-role="metricwrap"]');
@@ -1247,6 +1307,10 @@ class MiniCardEditor extends HTMLElement {
   set hass(h) {
     this._hass = h;
     if (h && this._config && !this._built) { this._render(); this._built = true; }
+    if (h && !MC_ICONE_MIE && !this._iconeLoading) {
+      this._iconeLoading = true;
+      mcIconeCarica(h).then(() => { this._iconeLoading = false; if (this._built) this._ridisegnaIcone(); });
+    }
     if (h && !this._navTargets && !this._navLoading) {
       this._navLoading = true;
       mcLoadNavTargets(h).then(targets => {
@@ -1464,16 +1528,124 @@ class MiniCardEditor extends HTMLElement {
 
   _iconGridHTML(sel, hasCustom) {
     const types = Object.keys(MC_ICON_RENDER);
+    const mie = MC_ICONE_MIE || [];
+    const idOra = (this._config && this._config.custom_icon_id) || "";
+    // Le tue vengono prima: sono quelle che stai cercando quando apri qui.
+    const miei = mie.map(ic => `
+      <div class="mc-iconmio">
+        <button type="button" class="mc-iconbtn${idOra === ic.id ? " sel" : ""}" data-mia="${this._esc(ic.id)}" title="${this._esc(ic.nome)}">
+          <span class="mc-iconbtn-wrap">${mcNamespaceCustomSvg(ic.svg || "")}</span>
+          <span class="mc-iconbtn-lbl">${this._esc(ic.nome)}</span>
+        </button>
+        <button type="button" class="mc-iconx" data-elimina="${this._esc(ic.id)}" title="Togli dalla raccolta">✕</button>
+      </div>`).join("");
     const customBtn = `
-      <button type="button" class="mc-iconbtn${hasCustom ? " sel" : ""}" data-icon="custom" title="Personalizzata">
+      <button type="button" class="mc-iconbtn${hasCustom && !idOra ? " sel" : ""}" data-icon="custom" title="Incollane una nuova">
         <span class="mc-iconbtn-wrap">${MC_CUSTOM_BADGE_SVG}</span>
-        <span class="mc-iconbtn-lbl">Personalizzata</span>
+        <span class="mc-iconbtn-lbl">Nuova</span>
       </button>`;
-    return `<div class="mc-icongrid">${customBtn}${types.map(t => `
+    return `<div class="mc-icongrid" id="f_icongrid">${miei}${customBtn}${types.map(t => `
       <button type="button" class="mc-iconbtn${!hasCustom && t === sel ? " sel" : ""}" data-icon="${t}" title="${MC_ICON_LABELS[t]}">
         <span class="mc-iconbtn-wrap">${mcIconFor(t)}</span>
         <span class="mc-iconbtn-lbl">${MC_ICON_LABELS[t]}</span>
       </button>`).join("")}</div>`;
+  }
+
+  // Solo la griglia, non tutto il modulo: ridisegnare il form intero mentre si
+  // scrive fa perdere il fuoco alla tastiera.
+  _ridisegnaIcone() {
+    const vecchia = this.querySelector("#f_icongrid");
+    if (!vecchia) return;
+    const c = this._config;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = this._iconGridHTML(c.icon_type, !!(c.custom_icon_svg || "").trim());
+    vecchia.replaceWith(tmp.firstElementChild);
+    this._wireIcone();
+  }
+
+  // Tutti i comandi della griglia icone. Sta a parte perche la griglia si
+  // ridisegna da sola quando la raccolta cambia, e i comandi vanno riattaccati.
+  _wireIcone() {
+    const climateRow = () => this.querySelector("#f_climaterow");
+    const customWrap = () => this.querySelector("#f_customwrap");
+
+    this.querySelectorAll(".mc-iconbtn[data-icon]").forEach(btn => btn.addEventListener("click", () => {
+      this._iconManuallySet = true;
+      this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b === btn));
+      if (btn.dataset.icon === "custom") {
+        if (customWrap()) customWrap().hidden = false;
+        // Non si tocca icon_type finche non c'e davvero un SVG incollato:
+        // altrimenti una card senza SVG mostrerebbe un tipo "custom" vuoto.
+        const svg = this.querySelector("#f_customsvg");
+        if (svg && svg.value.trim()) this._set("custom_icon_svg", svg.value);
+      } else {
+        if (customWrap()) customWrap().hidden = true;
+        this._config = Object.assign({}, this._config,
+          { custom_icon_svg: "", custom_icon_id: "", icon_type: btn.dataset.icon });
+        if (climateRow()) climateRow().hidden = btn.dataset.icon !== "climate";
+        this._emit();
+      }
+    }));
+
+    // Un'icona della raccolta: la card si porta dietro il disegno, non solo il
+    // riferimento, cosi resta a posto anche se un giorno la raccolta cambia.
+    this.querySelectorAll("[data-mia]").forEach(btn => btn.addEventListener("click", () => {
+      const ic = (MC_ICONE_MIE || []).find(x => x.id === btn.dataset.mia);
+      if (!ic) return;
+      this._iconManuallySet = true;
+      this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b === btn));
+      if (customWrap()) customWrap().hidden = true;
+      this._config = Object.assign({}, this._config,
+        { custom_icon_svg: ic.svg, custom_icon_id: ic.id });
+      const box = this.querySelector("#f_customsvg");
+      if (box) box.value = ic.svg;
+      const prev = this.querySelector("#f_custompreview");
+      if (prev) prev.innerHTML = ic.svg;
+      this._emit();
+    }));
+
+    this.querySelectorAll("[data-elimina]").forEach(btn => btn.addEventListener("click", async e => {
+      e.stopPropagation();
+      const id = btn.dataset.elimina;
+      const ic = (MC_ICONE_MIE || []).find(x => x.id === id);
+      if (!ic) return;
+      // Un'icona tolta per sbaglio andrebbe ridisegnata da capo: si chiede.
+      if (!confirm(`Togliere "${ic.nome}" dalla raccolta?\n\nLe card che la usano gia la tengono: il disegno e salvato dentro di loro.`)) return;
+      try {
+        await mcIconeSalva(this._hass, (MC_ICONE_MIE || []).filter(x => x.id !== id));
+        this._ridisegnaIcone();
+      } catch (err) { console.warn("[mini-card] non riesco a togliere l'icona:", err); }
+    }));
+
+    const salva = this.querySelector("#f_iconasalva");
+    if (salva) salva.addEventListener("click", async () => {
+      const box = this.querySelector("#f_customsvg");
+      const campo = this.querySelector("#f_iconanome");
+      const esito = this.querySelector("#f_iconaesito");
+      const svg = (box && box.value || "").trim();
+      const nome = (campo && campo.value || "").trim();
+      if (!svg) { if (esito) esito.textContent = "Prima incolla il codice dell'icona."; return; }
+      if (!nome) { if (esito) esito.textContent = "Dalle un nome, senno nella raccolta non la riconosci."; return; }
+      salva.disabled = true;
+      try {
+        const lista = (MC_ICONE_MIE || []).slice();
+        // Stesso nome = la stai rifacendo: si sostituisce invece di
+        // ritrovarsi tre "Bollitore" uno accanto all'altro.
+        const gia = lista.findIndex(x => x.nome.toLowerCase() === nome.toLowerCase());
+        const ic = { id: gia >= 0 ? lista[gia].id : mcIconeId(), nome, svg, quando: Date.now() };
+        if (gia >= 0) lista[gia] = ic; else lista.push(ic);
+        await mcIconeSalva(this._hass, lista);
+        this._config = Object.assign({}, this._config, { custom_icon_svg: svg, custom_icon_id: ic.id });
+        this._emit();
+        this._ridisegnaIcone();
+        if (esito) esito.textContent = gia >= 0 ? `"${nome}" aggiornata nella raccolta.` : `"${nome}" e nella raccolta: la ritrovi su ogni card.`;
+        if (campo) campo.value = "";
+      } catch (err) {
+        console.warn("[mini-card] non riesco a salvare l'icona:", err);
+        if (esito) esito.textContent = "Non sono riuscito a salvarla. Riprova.";
+      }
+      salva.disabled = false;
+    });
   }
 
   _render() {
@@ -1489,6 +1661,18 @@ class MiniCardEditor extends HTMLElement {
       .mce .row{display:flex;gap:12px}.mce .row>.fld{flex:1}
       .mce .note{font-size:11.5px;color:var(--secondary-text-color);line-height:1.5;margin-top:4px}
       .mc-icongrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+      .mc-iconmio{position:relative;display:flex}
+      .mc-iconmio>.mc-iconbtn{flex:1}
+      .mc-iconx{position:absolute;top:-5px;right:-5px;width:19px;height:19px;border-radius:50%;
+        border:1px solid var(--divider-color);background:var(--card-background-color);
+        color:var(--secondary-text-color);font-size:10px;line-height:1;cursor:pointer;padding:0}
+      .mc-iconx:hover{color:#ff6b6b;border-color:#ff6b6b}
+      .mc-salvaicona{display:flex;gap:8px;align-items:center;margin-top:8px}
+      .mc-salvaicona input{flex:1}
+      .mc-salvabtn{padding:9px 14px;border-radius:9px;border:1px solid var(--primary-color);
+        background:transparent;color:var(--primary-color);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+      .mc-salvabtn:disabled{opacity:.4;cursor:not-allowed}
+      .mc-salvaesito{font-size:11.5px;color:var(--secondary-text-color);margin-top:4px;min-height:14px}
       .mc-iconbtn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:12px;
         border:1.5px solid var(--divider-color);background:var(--card-background-color);cursor:pointer}
       .mc-iconbtn.sel{border-color:var(--primary-color);background:rgba(var(--rgb-primary-color,3,169,244),.12)}
@@ -1539,6 +1723,11 @@ class MiniCardEditor extends HTMLElement {
           <textarea id="f_customsvg" class="mc-svgbox" placeholder="&lt;svg viewBox=&quot;0 0 100 100&quot;&gt;...&lt;/svg&gt;">${this._esc(c.custom_icon_svg || "")}</textarea>
           <div class="mc-svgpreview" id="f_custompreview">${(c.custom_icon_svg || "").trim() ? c.custom_icon_svg : ""}</div>
         </div>
+        <div class="mc-salvaicona">
+          <input type="text" id="f_iconanome" placeholder="Come si chiama (es. Bollitore)" maxlength="24">
+          <button type="button" class="mc-salvabtn" id="f_iconasalva">Salva nella raccolta</button>
+        </div>
+        <div class="mc-salvaesito" id="f_iconaesito"></div>
       </div>
       <div id="f_devicewrap" ${c.mode === "room" ? "hidden" : ""}>
         ${this._devicePickerHTML(c.device_id)}
@@ -1609,24 +1798,7 @@ class MiniCardEditor extends HTMLElement {
       }
       this._emit();
     });
-    this.querySelectorAll(".mc-iconbtn").forEach(btn => btn.addEventListener("click", () => {
-      this._iconManuallySet = true;
-      this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b === btn));
-      const customWrap = this.querySelector("#f_customwrap");
-      if (btn.dataset.icon === "custom") {
-        if (customWrap) customWrap.hidden = false;
-        // Non tocchiamo icon_type finché non c'è davvero un SVG incollato:
-        // altrimenti una card senza SVG mostrerebbe un tipo "custom" vuoto.
-        const svg = this.querySelector("#f_customsvg");
-        if (svg && svg.value.trim()) this._set("custom_icon_svg", svg.value);
-      } else {
-        if (customWrap) customWrap.hidden = true;
-        this._config = Object.assign({}, this._config, { custom_icon_svg: "", icon_type: btn.dataset.icon });
-        const climateRow = this.querySelector("#f_climaterow");
-        if (climateRow) climateRow.hidden = btn.dataset.icon !== "climate";
-        this._emit();
-      }
-    }));
+    this._wireIcone();
     on("#f_customsvg", "input", e => {
       const svg = e.target.value;
       const preview = this.querySelector("#f_custompreview");
