@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.14.0";
+const MC_VERSION = "1.15.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -865,14 +865,18 @@ class MiniCard extends HTMLElement {
       /* La velatura scura dal basso: serve a leggere il testo qualunque cosa
          ci sia disegnato sotto, chiara o scura che sia. */
       .mc-card[data-icona="piena"]::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
-        background:linear-gradient(to top,rgba(4,8,14,.94) 0%,rgba(4,8,14,.78) 24%,
-          rgba(4,8,14,.22) 50%,rgba(4,8,14,0) 70%)}
+        background:linear-gradient(to top,rgba(4,8,14,.92) 0%,rgba(4,8,14,.70) 30%,
+          rgba(4,8,14,0) 55%)}
+      /* Piu grandi: le misure di prima erano tarate per stare sopra al disegno
+         senza coprirlo, ma il risultato era una scritta da leggere strizzando
+         gli occhi. Ora che il disegno sta in alto e lo spazio sotto e libero,
+         il testo puo prendersi quello che gli serve. */
       .mc-card[data-icona="piena"] .mc-name{position:relative;z-index:2;margin:0;
-        padding:0 4.5cqw;font-size:clamp(10px,7.4cqw,22px);line-height:1.15;color:#fff;
+        padding:0 4.5cqw;font-size:clamp(13px,10cqw,30px);line-height:1.12;color:#fff;
         white-space:normal;text-shadow:0 1px 5px rgba(0,0,0,.9)}
       .mc-card[data-icona="piena"] .mc-sub{position:relative;z-index:2;
-        padding:1.5cqw 4.5cqw 4.5cqw;font-size:clamp(7px,4.3cqw,14px);line-height:1.3;
-        white-space:normal;color:rgba(255,255,255,.92);text-shadow:0 1px 4px rgba(0,0,0,.9)}
+        padding:1.5cqw 4.5cqw 4.5cqw;font-size:clamp(9.5px,6.2cqw,18px);line-height:1.28;
+        white-space:normal;color:rgba(255,255,255,.95);text-shadow:0 1px 4px rgba(0,0,0,.9)}
       /* Su una stanza non hanno senso: il tasto acceso/spento (non ha una
          presa), "Apri la vista" (la card si tocca e ci porta, si capisce), e
          i watt (che stanno gia nella riga dei dati). */
@@ -893,9 +897,9 @@ class MiniCard extends HTMLElement {
          a certe soglie: una card larga il doppio aveva la stessa iconcina. */
       .mc-card[data-icona="piccola"] .mc-iconwrap{width:clamp(26px,30cqw,110px);height:auto;
         aspect-ratio:1;flex:0 0 auto}
-      .mc-card[data-icona="piccola"] .mc-name{font-size:clamp(9px,7cqw,17px);line-height:1.2}
-      .mc-card[data-icona="piccola"] .mc-sub{font-size:clamp(7px,4.6cqw,12.5px);line-height:1.3}
-      .mc-card[data-icona="piccola"] .mc-state{font-size:clamp(7px,4.4cqw,12px)}
+      .mc-card[data-icona="piccola"] .mc-name{font-size:clamp(10px,8cqw,19px);line-height:1.2}
+      .mc-card[data-icona="piccola"] .mc-sub{font-size:clamp(8.5px,5.6cqw,14px);line-height:1.3}
+      .mc-card[data-icona="piccola"] .mc-state{font-size:clamp(8px,5cqw,13px)}
       .mc-card[data-icona="piccola"] .mc-metric{font-size:clamp(10px,7cqw,20px)}
       .mc-card[data-icona="piccola"] .mc-badge{font-size:clamp(7px,3.6cqw,10.5px)}
       .mc-svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 7px rgba(0,0,0,.35))}
@@ -1038,11 +1042,14 @@ class MiniCard extends HTMLElement {
     // di riempire e farsi ritagliare ai bordi, come una foto di copertina.
     const svg = this._el.querySelector(".mc-iconwrap svg");
     if (svg) {
-      // "slice" riempie e si fa ritagliare ai bordi (copertina); "meet" ci sta
-      // dentro tutto intero. Il disegno di un ambiente e largo (800x500): in
-      // una tessera quadrata, senza slice, lascerebbe due bande vuote.
+      // "meet" ci sta dentro TUTTO INTERO. Prima usavo "slice", che riempie
+      // ritagliando ai bordi: su una tessera quadrata un disegno largo 800x500
+      // ci perdeva quasi il 40% della larghezza, e infatti della stanza si
+      // vedeva solo la fetta centrale. Meglio vedere tutto il disegno.
+      // "YMin" lo incolla in ALTO: lo spazio che avanza resta in basso, che e
+      // proprio dove servono nome e temperatura.
       svg.setAttribute("preserveAspectRatio",
-        this._modoIcona() === "piena" ? "xMidYMid slice" : "xMidYMid meet");
+        this._modoIcona() === "piena" ? "xMidYMin meet" : "xMidYMid meet");
     }
     this._el.addEventListener("click", e => {
       if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')) return;
