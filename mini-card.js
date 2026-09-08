@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.9.0";
+const MC_VERSION = "1.10.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -16,6 +16,7 @@ const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "",
   power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
+  taglia: "normale",
 };
 
 // Un contatore per pagina, non per card: garantisce un suffisso diverso a
@@ -137,6 +138,20 @@ async function mcLoadNavTargets(hass) {
         const viewPath = v.path || String(i);
         const base = d.url_path || "lovelace";
         targets.push({ path: `/${base}/${viewPath}`, label: `${d.title || base} · ${v.title || viewPath}` });
+        // Le pagine di un pannello Faber Home non sono viste di Lovelace: sono
+        // pagine interne, e si raggiungono col cancelletto. Senza cercarle qui
+        // non comparivano affatto fra le mete, ed era impossibile collegare
+        // una card a una stanza.
+        (v.cards || []).forEach(c => {
+          if (!c || c.type !== "custom:faber-home") return;
+          (c.pages || []).forEach(pg => {
+            if (!pg || !pg.id) return;
+            targets.push({
+              path: `/${base}/${viewPath}#${pg.id}`,
+              label: `${v.title || viewPath} \u00b7 ${pg.title || pg.id}`,
+            });
+          });
+        });
       });
     } catch (e) { /* dashboard non leggibile (yaml/strategy) o non accessibile: salta */ }
   }
@@ -762,6 +777,26 @@ class MiniCard extends HTMLElement {
       .mc-card::before{content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;
         background:radial-gradient(120% 60% at 50% -10%,rgba(255,255,255,.06),transparent 60%)}
       .mc-iconwrap{width:44px;height:44px;flex:0 0 auto}
+      /* Due tagli in meno per le card che servono solo a portare da qualche
+         parte: una "stanza" non deve occupare lo spazio di un elettrodomestico
+         con tutte le sue misure. "Quadrata" tiene il rapporto 1:1 qualunque
+         sia la larghezza della colonna. */
+      .mc-card.piccola{padding:8px 6px;border-radius:14px;gap:1px}
+      .mc-card.piccola .mc-iconwrap{width:30px;height:30px}
+      .mc-card.piccola .mc-name{font-size:10px;margin-top:1px}
+      .mc-card.piccola .mc-state,.mc-card.piccola .mc-sub{font-size:8.5px}
+      .mc-card.piccola .mc-metric{font-size:10.5px}
+      .mc-card.piccola::before{border-radius:14px}
+      .mc-card.quadrata{aspect-ratio:1;padding:6px;border-radius:16px;gap:1px;flex:0 0 auto;width:100%}
+      .mc-card.quadrata .mc-iconwrap{width:34px;height:34px}
+      .mc-card.quadrata .mc-name{font-size:10px;margin-top:2px}
+      .mc-card.quadrata .mc-state,.mc-card.quadrata .mc-sub{font-size:8.5px}
+      .mc-card.quadrata .mc-metric{font-size:11px}
+      .mc-card.quadrata::before{border-radius:16px}
+      @container mc (max-width:120px){
+        .mc-card.quadrata .mc-iconwrap{width:28px;height:28px}
+        .mc-card.quadrata .mc-sub,.mc-card.quadrata .mc-metric{display:none}
+      }
       /* Card "Stanza": icona panoramica invece di quadrata (i disegni di
          ambiente/scena sono larghi, es. 500x350 — schiacciati in un quadrato
          diventavano illeggibili). Larghezza legata a quella vera della card
@@ -1025,6 +1060,8 @@ class MiniCard extends HTMLElement {
     const on = this._isOn();
     const st = this._stato();
     this._el.classList.toggle("on", on);
+    this._el.classList.toggle("piccola", cfg.taglia === "piccola");
+    this._el.classList.toggle("quadrata", cfg.taglia === "quadrata");
     this._el.classList.toggle("lavora", st === "lavora");
     this._el.classList.toggle("attesa", st === "attesa");
     this._el.querySelector('[data-role="state"]').textContent = this._stateText(on);
@@ -1502,6 +1539,13 @@ class MiniCardEditor extends HTMLElement {
       <div id="f_devicewrap" ${c.mode === "room" ? "hidden" : ""}>
         ${this._devicePickerHTML(c.device_id)}
         ${this._pickerHTML("switch", ["switch.", "light.", "input_boolean."], c.switch, "Presa/interruttore/luce — opzionale")}
+        <div class="fld"><label>Dimensione della tessera</label>
+          <span class="h">"Quadrata" e comoda per le card che portano a una stanza: restano piccole e allineate.</span>
+          <select id="f_taglia">
+            <option value="normale"${(c.taglia || "normale") === "normale" ? " selected" : ""}>Normale</option>
+            <option value="piccola"${c.taglia === "piccola" ? " selected" : ""}>Piccola</option>
+            <option value="quadrata"${c.taglia === "quadrata" ? " selected" : ""}>Quadrata</option>
+          </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
       </div>
       ${this._pickerHTML("power", ["sensor."], c.power, c.mode === "room" ? "Sensore consumo della stanza (W) — opzionale" : "Sensore potenza (W) — opzionale", "abilita lo storico consumi e il consumo di oggi")}
@@ -1588,6 +1632,7 @@ class MiniCardEditor extends HTMLElement {
     this.querySelectorAll(".mc-picker").forEach(p => this._wirePicker(p));
     this.querySelectorAll(".mc-devpicker").forEach(p => this._wireDevicePicker(p));
     this.querySelectorAll(".mc-navpicker").forEach(p => this._wireNavPicker(p));
+    on("#f_taglia", "change", e => this._set("taglia", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
     on("#f_scaldo", "change", e => this._set("soglia_caldo", parseFloat(String(e.target.value).replace(",", ".")) || 26));
