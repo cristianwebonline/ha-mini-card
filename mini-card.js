@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.13.0";
+const MC_VERSION = "1.14.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13,7 +13,7 @@ console.info(`%c MINI-CARD %c v${MC_VERSION} `,
 const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 const MC_DEFAULTS = {
-  name: "Dispositivo", icon_type: "generic", custom_icon_svg: "", custom_icon_id: "",
+  name: "Dispositivo", icon_type: "generic", custom_icon_svg: "", custom_icon_id: "", icona: "auto",
   power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
   taglia: "normale",
@@ -858,31 +858,46 @@ class MiniCard extends HTMLElement {
          sotto, il testo sopra, e nessuno dei due ruba spazio all'altro.
          Le misure sono in cqw (percentuale della larghezza della card), quindi
          il testo cresce e cala da solo con la dimensione della tessera. */
-      .mc-card[data-mode="room"]{padding:0;gap:0;justify-content:flex-end;align-items:stretch}
-      .mc-card[data-mode="room"] .mc-iconwrap{position:absolute;inset:0;width:100%;height:100%;
+      .mc-card[data-icona="piena"]{padding:0;gap:0;justify-content:flex-end;align-items:stretch}
+      .mc-card[data-icona="piena"] .mc-iconwrap{position:absolute;inset:0;width:100%;height:100%;
         margin:0;aspect-ratio:auto;z-index:0}
-      .mc-card[data-mode="room"] .mc-svg{width:100%;height:100%;filter:none}
+      .mc-card[data-icona="piena"] .mc-svg{width:100%;height:100%;filter:none}
       /* La velatura scura dal basso: serve a leggere il testo qualunque cosa
          ci sia disegnato sotto, chiara o scura che sia. */
-      .mc-card[data-mode="room"]::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+      .mc-card[data-icona="piena"]::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
         background:linear-gradient(to top,rgba(4,8,14,.94) 0%,rgba(4,8,14,.78) 24%,
           rgba(4,8,14,.22) 50%,rgba(4,8,14,0) 70%)}
-      .mc-card[data-mode="room"] .mc-name{position:relative;z-index:2;margin:0;padding:0 9px;
-        font-size:clamp(10.5px,7.4cqw,19px);line-height:1.15;color:#fff;
+      .mc-card[data-icona="piena"] .mc-name{position:relative;z-index:2;margin:0;
+        padding:0 4.5cqw;font-size:clamp(10px,7.4cqw,22px);line-height:1.15;color:#fff;
         white-space:normal;text-shadow:0 1px 5px rgba(0,0,0,.9)}
-      .mc-card[data-mode="room"] .mc-sub{position:relative;z-index:2;padding:3px 9px 9px;
-        font-size:clamp(7.5px,4.3cqw,12.5px);line-height:1.3;white-space:normal;
-        color:rgba(255,255,255,.92);text-shadow:0 1px 4px rgba(0,0,0,.9)}
+      .mc-card[data-icona="piena"] .mc-sub{position:relative;z-index:2;
+        padding:1.5cqw 4.5cqw 4.5cqw;font-size:clamp(7px,4.3cqw,14px);line-height:1.3;
+        white-space:normal;color:rgba(255,255,255,.92);text-shadow:0 1px 4px rgba(0,0,0,.9)}
       /* Su una stanza non hanno senso: il tasto acceso/spento (non ha una
          presa), "Apri la vista" (la card si tocca e ci porta, si capisce), e
          i watt (che stanno gia nella riga dei dati). */
-      .mc-card[data-mode="room"] .mc-badge,
-      .mc-card[data-mode="room"] .mc-state,
-      .mc-card[data-mode="room"] .mc-metric{display:none!important}
-      .mc-card[data-mode="room"] .mc-info{z-index:3}
+      .mc-card[data-icona="piena"] .mc-state,
+      .mc-card[data-icona="piena"] .mc-metric{display:none!important}
+      .mc-card[data-mode="room"] .mc-badge{display:none!important}
+      .mc-card[data-icona="piena"] .mc-info{z-index:3}
+      .mc-card[data-icona="piena"] .mc-badge{position:relative;z-index:2;align-self:center;
+        margin-bottom:3cqw}
       /* Il velo verde di "sta consumando" su una foto a tutta card sarebbe
          una patina addosso al disegno: sulle stanze resta appena accennato. */
-      .mc-card[data-mode="room"].on.lavora{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07))}
+      .mc-card[data-icona="piena"].on.lavora{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07))}
+
+      /* ICONA PICCOLA — il disegno in mezzo e le scritte sotto. Anche qui
+         TUTTO segue la larghezza della card: ingrandisci la tessera e crescono
+         insieme icona e scritte, la rimpicciolisci e calano insieme. Prima le
+         misure erano fisse (44px l'icona, 11px il nome) e cambiavano a scatti
+         a certe soglie: una card larga il doppio aveva la stessa iconcina. */
+      .mc-card[data-icona="piccola"] .mc-iconwrap{width:clamp(26px,30cqw,110px);height:auto;
+        aspect-ratio:1;flex:0 0 auto}
+      .mc-card[data-icona="piccola"] .mc-name{font-size:clamp(9px,7cqw,17px);line-height:1.2}
+      .mc-card[data-icona="piccola"] .mc-sub{font-size:clamp(7px,4.6cqw,12.5px);line-height:1.3}
+      .mc-card[data-icona="piccola"] .mc-state{font-size:clamp(7px,4.4cqw,12px)}
+      .mc-card[data-icona="piccola"] .mc-metric{font-size:clamp(10px,7cqw,20px)}
+      .mc-card[data-icona="piccola"] .mc-badge{font-size:clamp(7px,3.6cqw,10.5px)}
       .mc-svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 7px rgba(0,0,0,.35))}
       .mc-name{font-size:11px;font-weight:800;margin-top:2px;text-align:center;line-height:1.2;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -913,16 +928,11 @@ class MiniCard extends HTMLElement {
       .mc-metric{font-size:12px;font-weight:850;font-variant-numeric:tabular-nums;color:var(--mc-ink)}
       .mc-metric small{font-size:8px;color:var(--mc-muted);font-weight:700;margin-left:1px}
       /* le container query fanno crescere icona e testo quando la card viene allargata */
-      @container mc (min-width:130px){
-        .mc-iconwrap{width:56px;height:56px} .mc-name{font-size:12.5px} .mc-badge{font-size:9.5px;padding:3px 9px}
-        .mc-state{font-size:10.5px} .mc-sub{font-size:10px} .mc-metric{font-size:14px}
-      }
-      @container mc (min-width:170px){
-        .mc-iconwrap{width:72px;height:72px} .mc-name{font-size:14px} .mc-badge{font-size:10px;padding:3px 10px}
-        .mc-state{font-size:11.5px} .mc-sub{font-size:10.5px} .mc-metric{font-size:17px}
-      }
-      @container mc (min-width:220px){
-        .mc-iconwrap{width:88px;height:88px} .mc-name{font-size:15.5px} .mc-badge{font-size:10.5px;padding:4px 12px}
+      /* Qui c'erano tre soglie fisse (130, 170, 220 px) che facevano crescere
+         icona e scritte A SCATTI: una card larga il doppio poteva ritrovarsi
+         con la stessa iconcina finche non superava la soglia successiva. Ora
+         le misure sono in cqw, cioe in percentuale della larghezza della card:
+         crescono e calano con continuita insieme alla tessera. */ .mc-badge{font-size:10.5px;padding:4px 12px}
         .mc-state{font-size:12.5px} .mc-sub{font-size:11.5px} .mc-metric{font-size:20px}
       }
       .mc-glow{opacity:.12;transition:opacity .5s}
@@ -1011,7 +1021,7 @@ class MiniCard extends HTMLElement {
       @media(prefers-reduced-motion:reduce){.mc *{animation:none!important}}
     </style>
     <div class="mc">
-      <div class="mc-card" data-icon="${this._esc(this._cfg.icon_type)}" data-mode="${this._esc(this._cfg.mode || "device")}" data-role="tap">
+      <div class="mc-card" data-icon="${this._esc(this._cfg.icon_type)}" data-mode="${this._esc(this._cfg.mode || "device")}" data-icona="${this._esc(this._modoIcona())}" data-role="tap">
         <button class="mc-info" data-role="info" title="Informazioni e impostazioni" hidden>⚙</button>
         <div class="mc-iconwrap">${this._icon()}</div>
         <div class="mc-name">${this._esc(this._cfg.name)}</div>
@@ -1026,9 +1036,13 @@ class MiniCard extends HTMLElement {
     // Un disegno d'ambiente e largo (800x500, 1000x600): dentro una tessera
     // quadrata ci starebbe con due bande vuote sopra e sotto. "slice" gli dice
     // di riempire e farsi ritagliare ai bordi, come una foto di copertina.
-    if (this._cfg.mode === "room") {
-      const svg = this._el.querySelector(".mc-iconwrap svg");
-      if (svg) svg.setAttribute("preserveAspectRatio", "xMidYMid slice");
+    const svg = this._el.querySelector(".mc-iconwrap svg");
+    if (svg) {
+      // "slice" riempie e si fa ritagliare ai bordi (copertina); "meet" ci sta
+      // dentro tutto intero. Il disegno di un ambiente e largo (800x500): in
+      // una tessera quadrata, senza slice, lascerebbe due bande vuote.
+      svg.setAttribute("preserveAspectRatio",
+        this._modoIcona() === "piena" ? "xMidYMid slice" : "xMidYMid meet");
     }
     this._el.addEventListener("click", e => {
       if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')) return;
@@ -1086,6 +1100,15 @@ class MiniCard extends HTMLElement {
   //   lavora   -> sta consumando davvero: e' qui che l'icona si anima
   // Senza sensore di potenza non si puo' distinguere attesa da lavoro:
   // acceso vuol dire lavora, com'era prima.
+  // "piena" = il disegno riempie la card e le scritte gli stanno sopra.
+  // "piccola" = il disegno sta in mezzo e le scritte sotto, come una tessera.
+  // "auto" (com'era prima) = piena sulle stanze, piccola sugli apparecchi.
+  _modoIcona() {
+    const v = this._cfg.icona || "auto";
+    if (v === "piena" || v === "piccola") return v;
+    return this._cfg.mode === "room" ? "piena" : "piccola";
+  }
+
   _stato() {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
@@ -1775,6 +1798,13 @@ class MiniCardEditor extends HTMLElement {
         </div>
       </div>
       <div class="fld"><label>Icona</label>${this._iconGridHTML(c.icon_type, !!(c.custom_icon_svg || "").trim())}</div>
+      <div class="fld"><label>Come sta l'icona nella card</label>
+        <span class="h">"Riempie tutto" mette il disegno a tutta tessera con il nome sopra, come la copertina di un disco: sta bene sulle stanze e sui disegni d'ambiente. "Piccola" lo mette in mezzo con le scritte sotto. In tutti e due i casi icona e scritte crescono e calano insieme alla dimensione della card.</span>
+        <select id="f_icona">
+          <option value="auto"${(c.icona || "auto") === "auto" ? " selected" : ""}>Da se (piena sulle stanze, piccola sugli apparecchi)</option>
+          <option value="piena"${c.icona === "piena" ? " selected" : ""}>Riempie tutta la card</option>
+          <option value="piccola"${c.icona === "piccola" ? " selected" : ""}>Piccola, con le scritte sotto</option>
+        </select></div>
       <div class="fld" id="f_customwrap" ${(c.custom_icon_svg || "").trim() ? "" : "hidden"}>
         <label>Codice SVG dell'icona personalizzata</label>
         <span class="h">Incolla qui il codice generato dalla <a class="mc-creator-link" href="https://claude.ai/code/artifact/a536cdbd-3027-4f7a-8216-34fb6f11ce30" target="_blank" rel="noopener">Fucina Icone ↗</a> — usa lo stesso stile delle 20 icone del pacchetto.</span>
@@ -1868,6 +1898,7 @@ class MiniCardEditor extends HTMLElement {
     this.querySelectorAll(".mc-devpicker").forEach(p => this._wireDevicePicker(p));
     this.querySelectorAll(".mc-navpicker").forEach(p => this._wireNavPicker(p));
     on("#f_taglia", "change", e => this._set("taglia", e.target.value));
+    on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
     on("#f_scaldo", "change", e => this._set("soglia_caldo", parseFloat(String(e.target.value).replace(",", ".")) || 26));
