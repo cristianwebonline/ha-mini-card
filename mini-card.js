@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.10.0";
+const MC_VERSION = "1.10.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -826,6 +826,10 @@ class MiniCard extends HTMLElement {
       .mc-card.on.lavora{background-image:linear-gradient(rgba(56,224,138,.14),rgba(56,224,138,.14));border-color:rgba(56,224,138,.34)}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
       .mc-card.on .mc-state{color:#8ff0b4}
+      /* In attesa il testo resta neutro: il verde acceso vuol dire "sta
+         lavorando", e usarlo anche per "acceso ma fermo" toglierebbe proprio
+         la distinzione che si voleva. */
+      .mc-card.on.attesa .mc-state{color:var(--mc-muted)}
       .mc-sub{font-size:9px;color:var(--mc-muted);margin-top:-1px}
       .mc-metric{font-size:12px;font-weight:850;font-variant-numeric:tabular-nums;color:var(--mc-ink)}
       .mc-metric small{font-size:8px;color:var(--mc-muted);font-weight:700;margin-left:1px}
