@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.8.0";
+const MC_VERSION = "1.8.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -779,7 +779,12 @@ class MiniCard extends HTMLElement {
       .mc-badge[data-on="1"] .dot{background:#38e08a;box-shadow:0 0 5px #38e08a}
       .mc-badge[data-on="0"] .dot{background:#5a6572}
       @keyframes mc-blink{0%,100%{opacity:1}50%{opacity:.55}}
-      .mc-card.on{background-color:rgba(56,224,138,.08);border-color:rgba(56,224,138,.26)}
+      /* Acceso: la velatura verde va SOPRA il pannello, non al suo posto.
+         Sostituendo lo sfondo la card restava all'8% di opacita e su un fondo
+         chiaro (pannello Faber Home di giorno) diventava quasi bianca, con il
+         testo bianco sopra: illeggibile. Cosi il pannello resta scuro quanto
+         serve su qualunque sfondo. */
+      .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.14),rgba(56,224,138,.14));border-color:rgba(56,224,138,.34)}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
       .mc-card.on .mc-state{color:#8ff0b4}
       .mc-sub{font-size:9px;color:var(--mc-muted);margin-top:-1px}
