@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.16.0";
+const MC_VERSION = "1.17.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -963,11 +963,23 @@ class MiniCard extends HTMLElement {
       @keyframes mc-pulse-fast{0%,100%{opacity:.42}50%{opacity:1}}
       [data-role="mercury"]{transition:height .6s ease,y .6s ease}
       .mc-steam{opacity:0;transition:opacity .4s}
-      .mc-card.lavora .mc-steam{opacity:.85;animation:mc-steam-rise 2.2s ease-in-out infinite}
-      @keyframes mc-steam-rise{0%{opacity:0;transform:translateY(4px)}40%{opacity:.85}100%{opacity:0;transform:translateY(-10px)}}
+      /* Nei disegni fatti in casa il vapore sta quasi sempre dentro un gruppo
+         gia velato (opacity .6): le due trasparenze si moltiplicano, e quello
+         che doveva essere all'85% finiva al 51%. */
+      .mc-card.lavora .mc-steam{opacity:1;animation:mc-steam-rise 2.4s ease-in-out infinite}
+      .mc-card.lavora .mc-steam:nth-of-type(2){animation-delay:.8s}
+      .mc-card.lavora .mc-steam:nth-of-type(3){animation-delay:1.6s}
+      /* IN PERCENTUALE, non in pixel. Dentro un SVG "10px" non sono dieci
+         pixel dello schermo: sono dieci unita del disegno. Sulle icone di
+         serie (viewBox 100x100) fanno il 10% dell'altezza e il vapore si
+         vedeva salire; su un disegno grande come la cucina di casa
+         (viewBox 1000x600) fanno l'1,7%, cioe niente. Ecco perche il vapore
+         non usciva dalla pentola. La percentuale invece si misura sul pezzo
+         disegnato, quindi vale uguale per qualunque disegno. */
+      @keyframes mc-steam-rise{0%{opacity:0;transform:translateY(18%)}40%{opacity:.9}100%{opacity:0;transform:translateY(-55%)}}
       .mc-water{opacity:0;transition:opacity .4s}
       .mc-card.lavora .mc-water{opacity:.85;animation:mc-water-fall 1s linear infinite}
-      @keyframes mc-water-fall{0%{opacity:0;transform:translateY(-4px)}50%{opacity:.9}100%{opacity:0;transform:translateY(6px)}}
+      @keyframes mc-water-fall{0%{opacity:0;transform:translateY(-35%)}50%{opacity:.95}100%{opacity:0;transform:translateY(45%)}}
       .mc-bulb2{opacity:.3;transition:opacity .4s}
       .mc-card.on .mc-bulb2{opacity:.8;filter:drop-shadow(0 0 4px #ffd166)}
       /* Una lampada accesa respira: l'alone si allarga e si stringe piano.
