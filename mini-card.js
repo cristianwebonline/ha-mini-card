@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.27.0";
+const MC_VERSION = "1.28.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -17,6 +17,10 @@ const MC_DEFAULTS = {
   power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
   taglia: "normale",
+  // Di serie chiede conferma prima di accendere o spegnere: il tocco sulla
+  // pill sta a un dito da quello che apre la card, e sbagliare vuol dire
+  // staccare davvero la corrente a un elettrodomestico.
+  conferma_accensione: true,
 };
 
 // Un contatore per pagina, non per card: garantisce un suffisso diverso a
@@ -827,14 +831,14 @@ class MiniCard extends HTMLElement {
       .mc-card.piccola{padding:8px 6px;border-radius:14px;gap:1px}
       .mc-card.piccola .mc-iconwrap{width:30px;height:30px}
       .mc-card.piccola .mc-name{font-size:10px;margin-top:1px}
-      .mc-card.piccola .mc-state,.mc-card.piccola .mc-sub{font-size:8.5px}
-      .mc-card.piccola .mc-metric{font-size:10.5px}
+      .mc-card.piccola .mc-state,.mc-card.piccola .mc-sub{font-size:9.5px}
+      .mc-card.piccola .mc-metric{font-size:13px}
       .mc-card.piccola::before{border-radius:14px}
       .mc-card.quadrata{aspect-ratio:1;padding:6px;border-radius:16px;gap:1px;flex:0 0 auto;width:100%}
       .mc-card.quadrata:not([data-mode="room"]) .mc-iconwrap{width:34px;height:34px}
       .mc-card.quadrata:not([data-mode="room"]) .mc-name{font-size:10px;margin-top:2px}
-      .mc-card.quadrata .mc-state,.mc-card.quadrata .mc-sub{font-size:8.5px}
-      .mc-card.quadrata .mc-metric{font-size:11px}
+      .mc-card.quadrata .mc-state,.mc-card.quadrata .mc-sub{font-size:9.5px}
+      .mc-card.quadrata .mc-metric{font-size:14px}
       .mc-card.quadrata::before{border-radius:16px}
       @container mc (max-width:120px){
         .mc-card.quadrata:not([data-mode="room"]) .mc-iconwrap{width:28px;height:28px}
@@ -934,9 +938,9 @@ class MiniCard extends HTMLElement {
       .mc-card[data-icona="piccola"] .mc-iconwrap{width:clamp(26px,30cqw,110px);height:auto;
         aspect-ratio:1;flex:0 0 auto}
       .mc-card[data-icona="piccola"] .mc-name{font-size:clamp(10px,8cqw,19px);line-height:1.2}
-      .mc-card[data-icona="piccola"] .mc-sub{font-size:clamp(8.5px,5.6cqw,14px);line-height:1.3}
+      .mc-card[data-icona="piccola"] .mc-sub{font-size:clamp(10.5px,6.4cqw,16px);line-height:1.3}
       .mc-card[data-icona="piccola"] .mc-state{font-size:clamp(8px,5cqw,13px)}
-      .mc-card[data-icona="piccola"] .mc-metric{font-size:clamp(10px,7cqw,20px)}
+      .mc-card[data-icona="piccola"] .mc-metric{font-size:clamp(14px,9.5cqw,27px)}
       .mc-card[data-icona="piccola"] .mc-badge{font-size:clamp(7px,3.6cqw,10.5px)}
       .mc-svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 7px rgba(0,0,0,.35))}
       .mc-name{font-size:11px;font-weight:800;margin-top:2px;text-align:center;line-height:1.2;
@@ -992,16 +996,16 @@ class MiniCard extends HTMLElement {
          lavorando", e usarlo anche per "acceso ma fermo" toglierebbe proprio
          la distinzione che si voleva. */
       .mc-card.on.attesa .mc-state{color:var(--mc-muted)}
-      .mc-sub{font-size:9px;color:var(--mc-muted);margin-top:-1px}
-      .mc-metric{font-size:12px;font-weight:850;font-variant-numeric:tabular-nums;color:var(--mc-ink)}
-      .mc-metric small{font-size:8px;color:var(--mc-muted);font-weight:700;margin-left:1px}
+      .mc-sub{font-size:11px;color:var(--mc-muted);margin-top:0}
+      .mc-metric{font-size:16px;font-weight:850;font-variant-numeric:tabular-nums;color:var(--mc-ink)}
+      .mc-metric small{font-size:10.5px;color:var(--mc-muted);font-weight:700;margin-left:2px}
       /* le container query fanno crescere icona e testo quando la card viene allargata */
       /* Qui c'erano tre soglie fisse (130, 170, 220 px) che facevano crescere
          icona e scritte A SCATTI: una card larga il doppio poteva ritrovarsi
          con la stessa iconcina finche non superava la soglia successiva. Ora
          le misure sono in cqw, cioe in percentuale della larghezza della card:
          crescono e calano con continuita insieme alla tessera. */ .mc-badge{font-size:10.5px;padding:4px 12px}
-        .mc-state{font-size:12.5px} .mc-sub{font-size:11.5px} .mc-metric{font-size:20px}
+        .mc-state{font-size:12.5px} .mc-sub{font-size:13px} .mc-metric{font-size:26px}
       }
       .mc-glow{opacity:.12;transition:opacity .5s}
       .mc-card.on .mc-glow{opacity:.75}
@@ -1077,6 +1081,20 @@ class MiniCard extends HTMLElement {
         border-bottom:none;border-radius:26px 26px 0 0;padding:10px 20px 28px;box-shadow:0 -14px 50px rgba(0,0,0,.55);
         transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);position:relative}
       .mc-scrim.on .mc-modal{transform:none}
+      /* Il foglio di conferma: nasce visibile (niente classe "on" da
+         accendere) e sta al centro, non in fondo come il popup grande. */
+      .mc-scrim.mc-conf{opacity:1;pointer-events:auto;align-items:center;padding:22px;z-index:12}
+      .mc-conferma{width:100%;max-width:330px;background:#1a1b21;border:1px solid rgba(255,255,255,.16);
+        border-radius:22px;padding:20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#f4f6f8;
+        animation:mc-entra .18s ease-out}
+      @keyframes mc-entra{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+      @media (prefers-reduced-motion:reduce){.mc-conferma{animation:none}}
+      .mc-conferma-txt{font-size:14.5px;font-weight:700;margin-bottom:16px;line-height:1.5}
+      .mc-conferma-row{display:flex;gap:10px}
+      .mc-cbtn{flex:1;padding:12px 0;border-radius:13px;border:1px solid rgba(255,255,255,.16);
+        background:rgba(255,255,255,.06);color:#f4f6f8;font:inherit;font-size:13.5px;font-weight:800;cursor:pointer}
+      .mc-cbtn:hover{filter:brightness(1.25)}
+      .mc-cbtn.si{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:#8ff0b4}
       .mc-sheet-handle{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.25);margin:6px auto 12px}
       .mc-mh{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
       .mc-mt{font-size:16px;font-weight:850;color:var(--mc-ink)}
@@ -1153,7 +1171,7 @@ class MiniCard extends HTMLElement {
       this._openImmersive();
     });
     const badge = this._el.querySelector('[data-role="badge"]');
-    badge.onclick = e => { e.stopPropagation(); this._toggle(); };
+    badge.onclick = e => { e.stopPropagation(); this._toggleChiesto(); };
     const infoBtn = this._el.querySelector('[data-role="info"]');
     infoBtn.onclick = e => { e.stopPropagation(); this._openMoreInfo(); };
   }
@@ -1182,6 +1200,42 @@ class MiniCard extends HTMLElement {
   _toggle() {
     const id = this._cfg.switch;
     if (id && this._hass.states[id]) this._hass.callService(id.split(".")[0], "toggle", { entity_id: id });
+  }
+
+  // Il tocco che accende o spegne davvero. Con la conferma attiva (di serie)
+  // passa prima dal foglio; "!== false" perche le card create prima che
+  // l'opzione esistesse non hanno il campo salvato e devono comportarsi
+  // come le nuove.
+  _toggleChiesto() {
+    if (this._cfg.conferma_accensione === false) { this._toggle(); return; }
+    const acceso = this._isOn();
+    const nome = this._cfg.name || "questo dispositivo";
+    this._confirm(`${acceso ? "Spegnere" : "Accendere"} ${nome}?`, () => this._toggle());
+  }
+
+  // Agganciato a ".mc" e non alla tessera: .mc-card ha container-type, che
+  // per le regole del web diventa il riferimento degli elementi position:fixed
+  // e li chiude dentro i suoi bordi invece di lasciarli coprire lo schermo.
+  // Nessun requestAnimationFrame e nessuna classe da accendere: il foglio
+  // nasce visibile e l'entrata la fa un'animazione CSS, che parte anche se la
+  // scheda non e in primo piano.
+  _confirm(testo, siFai) {
+    const vecchio = this.querySelector(".mc-scrim.mc-conf");
+    if (vecchio) vecchio.remove();
+    const ov = document.createElement("div");
+    ov.className = "mc-scrim mc-conf";
+    ov.innerHTML = `<div class="mc-conferma">
+      <div class="mc-conferma-txt">${this._esc(testo)}</div>
+      <div class="mc-conferma-row">
+        <button class="mc-cbtn" data-no>Annulla</button>
+        <button class="mc-cbtn si" data-si>Conferma</button>
+      </div>
+    </div>`;
+    this.querySelector(".mc").appendChild(ov);
+    const chiudi = () => ov.remove();
+    ov.querySelector("[data-no]").onclick = e => { e.stopPropagation(); chiudi(); };
+    ov.querySelector("[data-si]").onclick = e => { e.stopPropagation(); chiudi(); siFai(); };
+    ov.onclick = e => { e.stopPropagation(); if (e.target === ov) chiudi(); };
   }
 
   // Un consumo che balla intorno alla soglia (un frigo che oscilla fra 8 e
@@ -1545,7 +1599,7 @@ class MiniCard extends HTMLElement {
       const close = () => ov.classList.remove("on");
       const q = sel => ov.querySelector(sel);
       if (q('[data-act="close"]')) q('[data-act="close"]').onclick = close;
-      if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () => { this._toggle(); setTimeout(render, 400); };
+      if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () => { this._toggleChiesto(); setTimeout(render, 900); };
       if (q('[data-act="info"]')) q('[data-act="info"]').onclick = () => { close(); this._openMoreInfo(); };
       if (q('[data-act="nav"]')) q('[data-act="nav"]').onclick = () => { close(); this._navigate(cfg.path); };
     };
@@ -1943,6 +1997,8 @@ class MiniCardEditor extends HTMLElement {
       .mce input,.mce select{padding:10px 11px;border-radius:8px;font-size:15px;font-family:inherit;
         border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
       .mce .row{display:flex;gap:12px}.mce .row>.fld{flex:1}
+      .mce .ck{display:flex;align-items:center;gap:8px;cursor:pointer}
+      .mce .ck input{width:auto}
       .mce .note{font-size:11.5px;color:var(--secondary-text-color);line-height:1.5;margin-top:4px}
       .mc-icongrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
       .mc-iconmio{position:relative;display:flex}
@@ -2032,6 +2088,9 @@ class MiniCardEditor extends HTMLElement {
           </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
       </div>
+      <div class="fld"><label>Prima di accendere o spegnere</label>
+        <label class="ck"><input type="checkbox" id="f_conferma"${c.conferma_accensione !== false ? " checked" : ""}> Chiedi conferma</label>
+        <span class="h">Il tasto acceso/spento sta a un dito da dove si tocca per aprire la card: capita di premerlo per sbaglio. Togli la spunta per farlo agire subito.</span></div>
       ${this._pickerHTML("power", ["sensor."], c.power, c.mode === "room" ? "Sensore consumo della stanza (W) — opzionale" : "Sensore potenza (W) — opzionale", "abilita lo storico consumi e il consumo di oggi")}
       ${this._pickerHTML("temp", ["sensor."], c.temp, "Sensore temperatura — opzionale")}
       ${this._pickerHTML("humidity", ["sensor."], c.humidity, "Sensore umidità — opzionale")}
@@ -2102,6 +2161,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_taglia", "change", e => this._set("taglia", e.target.value));
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
+    on("#f_conferma", "change", e => this._set("conferma_accensione", e.target.checked));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
     on("#f_scaldo", "change", e => this._set("soglia_caldo", parseFloat(String(e.target.value).replace(",", ".")) || 26));
     on("#f_price", "change", e => this._set("prezzo_kwh", parseFloat(String(e.target.value).replace(",", ".")) || 0.30));
