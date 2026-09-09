@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.17.0";
+const MC_VERSION = "1.18.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -908,7 +908,7 @@ class MiniCard extends HTMLElement {
       .mc-badge{display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;margin-top:2px;
         font-size:8.5px;font-weight:800;letter-spacing:.2px;background:rgba(255,255,255,.06);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
       .mc-badge .dot{width:5px;height:5px;border-radius:50%;background:#5a6572;flex:0 0 auto}
-      .mc-badge[data-on="1"]{background:rgba(56,224,138,.16);border-color:rgba(56,224,138,.45);color:#8ff0b4}
+      .mc-badge[data-on="1"]{background:rgba(56,224,138,.16);border-color:rgba(56,224,138,.45);color:var(--mc-c-ok,#8ff0b4)}
       .mc-card.lavora .mc-badge[data-on="1"]{animation:mc-blink 3s ease-in-out infinite}
       .mc-badge[data-on="1"] .dot{background:#38e08a;box-shadow:0 0 5px #38e08a}
       .mc-badge[data-on="0"] .dot{background:#5a6572}
@@ -923,7 +923,7 @@ class MiniCard extends HTMLElement {
       .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07));border-color:rgba(56,224,138,.22)}
       .mc-card.on.lavora{background-image:linear-gradient(rgba(56,224,138,.14),rgba(56,224,138,.14));border-color:rgba(56,224,138,.34)}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
-      .mc-card.on .mc-state{color:#8ff0b4}
+      .mc-card.on .mc-state{color:var(--mc-c-ok,#8ff0b4)}
       /* In attesa il testo resta neutro: il verde acceso vuol dire "sta
          lavorando", e usarlo anche per "acceso ma fermo" toglierebbe proprio
          la distinzione che si voleva. */
@@ -1030,11 +1030,11 @@ class MiniCard extends HTMLElement {
       .mc-hero-icon.mc-card::before{content:none}
       .mc-hero-name{font-size:19px;font-weight:850;color:var(--mc-ink);margin-top:8px}
       .mc-hero-state{font-size:13px;font-weight:700;color:var(--mc-muted)}
-      .mc-hero-state.on{color:#8ff0b4}
+      .mc-hero-state.on{color:var(--mc-c-ok,#8ff0b4)}
       .mc-actions-row{display:flex;gap:10px;margin:18px 0 6px}
       .mc-pill{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:13px 10px;border-radius:16px;
         font:inherit;font-size:13px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
-      .mc-pill.on{background:linear-gradient(135deg,rgba(56,224,138,.28),rgba(56,224,138,.14));border-color:rgba(56,224,138,.5);color:#8ff0b4}
+      .mc-pill.on{background:linear-gradient(135deg,rgba(56,224,138,.28),rgba(56,224,138,.14));border-color:rgba(56,224,138,.5);color:var(--mc-c-ok,#8ff0b4)}
       .mc-pill-primary{background:linear-gradient(135deg,rgba(71,181,255,.3),rgba(71,181,255,.14));border-color:rgba(71,181,255,.5);color:#bfe6ff}
       .mc-chips{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin:4px 0 20px}
       .mc-chip{background:rgba(255,255,255,.05);border:1px solid var(--mc-stroke);border-radius:20px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--mc-ink)}
@@ -1208,6 +1208,47 @@ class MiniCard extends HTMLElement {
     return cfg.power ? (on ? "Attivo" : "A riposo") : "";
   }
 
+  // Il nome dell'APPARECCHIO, non quello del sensore.
+  // Il sensore si chiama "Frigo power": e giusto per un sensore, perche in una
+  // lista di sensori serve sapere cosa misura. Ma qui si sta dicendo CHI sta
+  // consumando, e la risposta e "Frigo" — la parola "power" e rumore, e in
+  // italiano non vuol dire nemmeno niente. Si prova prima col nome del
+  // dispositivo a cui il sensore appartiene (quello vero, quello che hai
+  // scritto tu in Home Assistant); se non c'e, si toglie dalla coda del nome
+  // la parola che dice cosa misura. Solo in coda: un "Power bank" in salotto
+  // deve restare "Power bank".
+  _nomeApparecchio(id) {
+    const st = this._hass.states[id];
+    const attr = (st && st.attributes) || {};
+    const dev = this._nomeDispositivo(id);
+    if (dev) return dev;
+    let n = attr.friendly_name || id;
+    const code = ["power", "potenza", "consumo", "consumption", "energy",
+      "energia", "watt", "w", "current consumption", "active power"];
+    let cambiato = true;
+    while (cambiato) {
+      cambiato = false;
+      for (const c of code) {
+        const re = new RegExp("[\\s_-]+" + c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i");
+        if (re.test(n) && n.replace(re, "").trim()) { n = n.replace(re, "").trim(); cambiato = true; }
+      }
+    }
+    return n;
+  }
+
+  // Il nome del dispositivo si legge dal registro, se il frontend ce l'ha
+  // gia in casa. Non si fa una chiamata apposta: se l'informazione non c'e,
+  // si torna indietro col nome ripulito, che va benissimo.
+  _nomeDispositivo(id) {
+    try {
+      const ent = this._hass.entities && this._hass.entities[id];
+      const devId = ent && ent.device_id;
+      const dev = devId && this._hass.devices && this._hass.devices[devId];
+      if (!dev) return null;
+      return dev.name_by_user || dev.name || null;
+    } catch (e) { return null; }
+  }
+
   // Chip informative (temperatura/umidità/consumo oggi/chi consuma di più):
   // usate sia nella riga sotto il nome sulla tessera sia come "chip" grandi
   // nel popup immersivo — un solo calcolo, due presentazioni.
@@ -1226,7 +1267,7 @@ class MiniCard extends HTMLElement {
       members.forEach(id => {
         const v = this._num(id);
         if (v == null) return;
-        if (!best || v > best.v) best = { v, name: (this._hass.states[id].attributes || {}).friendly_name || id };
+        if (!best || v > best.v) best = { v, name: this._nomeApparecchio(id) };
       });
       if (best && best.v > 1) parts.push(`🏆 ${this._esc(best.name)} ${Math.round(best.v)}W`);
     }
