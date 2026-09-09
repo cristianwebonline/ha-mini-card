@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.20.0";
+const MC_VERSION = "1.21.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -877,18 +877,35 @@ class MiniCard extends HTMLElement {
       .mc-card[data-icona="piena"] .mc-sub{position:relative;z-index:2;
         padding:1.5cqw 4.5cqw 4.5cqw;font-size:clamp(9.5px,6.2cqw,18px);line-height:1.28;
         white-space:normal;color:rgba(255,255,255,.95);text-shadow:0 1px 4px rgba(0,0,0,.9)}
-      /* Su una stanza non hanno senso: il tasto acceso/spento (non ha una
+      /* Su una STANZA non hanno senso: il tasto acceso/spento (non ha una
          presa), "Apri la vista" (la card si tocca e ci porta, si capisce), e
-         i watt (che stanno gia nella riga dei dati). */
-      .mc-card[data-icona="piena"] .mc-state,
-      .mc-card[data-icona="piena"] .mc-metric{display:none!important}
+         i watt (che stanno gia nella riga dei dati). Ma un APPARECCHIO con
+         un disegno a tutta card (un frigo vero, disegnato) e uno stato e un
+         consumo esattamente come un apparecchio con l'icona piccola — la
+         regola era scritta troppo larga, per "piena" invece che per
+         "stanza", e cosi il frigo perdeva lo stato e i watt che ogni altra
+         card mostra. Restano nascosti solo dove il commento diceva. */
+      .mc-card[data-mode="room"] .mc-state,
+      .mc-card[data-mode="room"] .mc-metric{display:none!important}
       .mc-card[data-mode="room"] .mc-badge{display:none!important}
+      /* Stesso trattamento di nome e sottotitolo: bianco con l'ombra, senno
+         sopra un disegno chiaro (un frigo bianco, una parete chiara) il
+         testo scuro di sempre sparirebbe. */
+      .mc-card[data-icona="piena"] .mc-state{position:relative;z-index:2;
+        padding:0 4.5cqw;font-size:clamp(10px,5.5cqw,15px);color:rgba(255,255,255,.95);
+        text-shadow:0 1px 4px rgba(0,0,0,.9)}
+      .mc-card[data-icona="piena"] .mc-metric{position:relative;z-index:2;
+        padding:0 4.5cqw 3cqw;font-size:clamp(14px,9cqw,26px);color:#fff;
+        text-shadow:0 1px 5px rgba(0,0,0,.9)}
+      .mc-card[data-icona="piena"] .mc-metric small{color:rgba(255,255,255,.75)}
       .mc-card[data-icona="piena"] .mc-info{z-index:3}
       .mc-card[data-icona="piena"] .mc-badge{position:relative;z-index:2;align-self:center;
         margin-bottom:3cqw}
       /* Il velo verde di "sta consumando" su una foto a tutta card sarebbe
          una patina addosso al disegno: sulle stanze resta appena accennato. */
-      .mc-card[data-icona="piena"].on.lavora{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07))}
+      .mc-card[data-icona="piena"].on.lavora{background-image:linear-gradient(
+        rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.16)),
+        rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.16)))}
 
       /* ICONA PICCOLA — il disegno in mezzo e le scritte sotto. Anche qui
          TUTTO segue la larghezza della card: ingrandisci la tessera e crescono
@@ -921,7 +938,15 @@ class MiniCard extends HTMLElement {
       /* Acceso ma fermo: una velatura appena accennata. In funzione: piena.
          Cosi si distingue con un'occhiata, senza leggere. */
       .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07));border-color:rgba(56,224,138,.22)}
-      .mc-card.on.lavora{background-image:linear-gradient(rgba(56,224,138,.14),rgba(56,224,138,.14));border-color:rgba(56,224,138,.34)}
+      /* L'opacita segue --mc-intensita, scritta da _update() in base a quanto
+         sta consumando davvero: appena sopra soglia resta leggera (.10 circa),
+         a pieno regime arriva piena (.30). Senza la variabile (un "lavora"
+         senza sensore di potenza) resta com'era, a meta scala. */
+      .mc-card.on.lavora{
+        background-image:linear-gradient(
+          rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.30)),
+          rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.30)));
+        border-color:rgba(56,224,138,calc(0.16 + var(--mc-intensita,0.5) * 0.32))}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
       .mc-card.on .mc-state{color:var(--mc-c-ok,#8ff0b4)}
       /* In attesa il testo resta neutro: il verde acceso vuol dire "sta
@@ -1324,6 +1349,21 @@ class MiniCard extends HTMLElement {
     this._el.classList.toggle("quadrata", cfg.taglia === "quadrata");
     this._el.classList.toggle("lavora", st === "lavora");
     this._el.classList.toggle("attesa", st === "attesa");
+    // La tinta di "sta lavorando" era sempre la stessa, che l'apparecchio
+    // tirasse 15W o 1500W: un forno appena acceso e un forno a tutta
+    // potenza si vedevano identici. Qui la tinta cresce con quanto sta
+    // consumando davvero rispetto alla sua soglia: appena sopra resta
+    // leggera, spinto resta piena. Il tetto e 7 volte la soglia — non un
+    // numero magico per quell'apparecchio, ma abbastanza alto che pochi
+    // elettrodomestici di casa lo tocchino mai, quindi la scala si sente
+    // viva su tutti senza doverla tarare uno per uno.
+    if (st === "lavora" && p != null) {
+      const soglia = parseFloat(cfg.soglia) || 10;
+      const intensita = Math.max(0.22, Math.min(1, (p - soglia) / (soglia * 6) + 0.22));
+      this._el.style.setProperty("--mc-intensita", intensita.toFixed(2));
+    } else {
+      this._el.style.removeProperty("--mc-intensita");
+    }
     this._el.querySelector('[data-role="state"]').textContent = this._stateText(on);
 
     const badge = this._el.querySelector('[data-role="badge"]');
