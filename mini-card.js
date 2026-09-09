@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.19.0";
+const MC_VERSION = "1.20.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1118,6 +1118,23 @@ class MiniCard extends HTMLElement {
     if (id && this._hass.states[id]) this._hass.callService(id.split(".")[0], "toggle", { entity_id: id });
   }
 
+  // Un consumo che balla intorno alla soglia (un frigo che oscilla fra 8 e
+  // 12W con la soglia a 10) faceva sfarfallare la card: accesa, spenta,
+  // accesa, spenta, decine di volte al minuto — non un guasto, solo rumore
+  // di misura preso troppo sul serio. Una soglia sola confondeva "sta
+  // consumando" con "un singolo numero ha superato una riga": qui ne
+  // servono due, una per accendersi e una piu bassa per spegnersi, cosi
+  // il rumore che oscilla in mezzo non fa piu scattare niente. Si accende
+  // sopra la soglia vera e si spegne solo sotto l'80% di quella soglia.
+  _consumaOra(p, soglia) {
+    if (p == null) return false;
+    const giu = soglia * 0.8;
+    const era = !!this.__consumaAttivo;
+    const ora = era ? (p > giu) : (p > soglia);
+    this.__consumaAttivo = ora;
+    return ora;
+  }
+
   // Stessa regola usata sia dalla tessera sia dal popup immersivo: presa/luce
   // vince se configurata, altrimenti la potenza sopra soglia.
   _isOn() {
@@ -1125,7 +1142,7 @@ class MiniCard extends HTMLElement {
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
     if (sw) return sw.state === "on";
-    if (cfg.power) return p != null && p > (parseFloat(cfg.soglia) || 10);
+    if (cfg.power) return this._consumaOra(p, parseFloat(cfg.soglia) || 10);
     return false;
   }
 
@@ -1158,12 +1175,12 @@ class MiniCard extends HTMLElement {
     // apparecchio e l'animazione segue quello: la stanza si "accende" quando
     // dentro si sta consumando davvero.
     if (cfg.mode === "room") {
-      if (cfg.power) return (p != null && p > soglia) ? "lavora" : "attesa";
+      if (cfg.power) return this._consumaOra(p, soglia) ? "lavora" : "attesa";
       return "lavora";
     }
     if (sw && sw.state !== "on") return "staccata";
     if (cfg.power) {
-      const consuma = p != null && p > soglia;
+      const consuma = this._consumaOra(p, soglia);
       if (sw) return consuma ? "lavora" : "attesa";
       return consuma ? "lavora" : "staccata";
     }
@@ -1181,7 +1198,17 @@ class MiniCard extends HTMLElement {
     if (!sw) return null;
     const dom = String(cfg.switch).split(".")[0];
     const dc = (sw.attributes && sw.attributes.device_class) || "";
-    if (dom === "light") return { on: "Luce accesa", off: "Luce spenta", giu: "Luce staccata" };
+    // Un rele che comanda una luce resta un domain "switch" per Home
+    // Assistant: il dominio da solo non basta, come si vede con "Luce
+    // cucina" — un rele ZHA vero e proprio, senza device_class, che pero
+    // accende una luce e diceva "Presa staccata" quando andava giu. Il
+    // segnale che c'era gia era l'icona: chi ha configurato l'entita
+    // in Home Assistant le ha messo una lampadina (mdi:lightbulb), e
+    // quell'icona la si legge dallo stato, non si indovina dal nome.
+    const ic = (sw.attributes && sw.attributes.icon) || "";
+    const pareLuce = /light|lightbulb|ceiling|lamp/i.test(ic)
+      || /\bluce\b|lampad|faretto|plafoniera/i.test(sw.attributes.friendly_name || "");
+    if (dom === "light" || pareLuce) return { on: "Luce accesa", off: "Luce spenta", giu: "Luce staccata" };
     if (dom === "input_boolean") return { on: "Comando attivo", off: "Comando spento", giu: "Comando spento" };
     if (dc === "switch") return { on: "Interruttore acceso", off: "Interruttore spento", giu: "Interruttore spento" };
     return { on: "Presa accesa", off: "Presa spenta", giu: "Presa staccata" };
