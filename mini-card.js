@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.29.0";
+const MC_VERSION = "1.30.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -21,6 +21,9 @@ const MC_DEFAULTS = {
   // pill sta a un dito da quello che apre la card, e sbagliare vuol dire
   // staccare davvero la corrente a un elettrodomestico.
   conferma_accensione: true,
+  // L'orologio dentro la card: non tutte le prese ne hanno bisogno, quindi
+  // di serie non c'e e si accende dalla Configura di quella card.
+  mostra_timer: false,
 };
 
 // Un contatore per pagina, non per card: garantisce un suffisso diverso a
@@ -1071,6 +1074,17 @@ class MiniCard extends HTMLElement {
         font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
         opacity:.5;transition:opacity .2s}
       .mc-info:hover{opacity:1}
+      /* A sinistra dell'ingranaggio: sono due tastini piccoli in cima alla
+         tessera e non devono sovrapporsi. Si accende (ambra) quando c'e
+         almeno un orario impostato, cosi si vede a colpo d'occhio. */
+      .mc-timer{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;z-index:2;
+        border:1px solid var(--mc-stroke);background:rgba(255,255,255,.08);color:var(--mc-muted);
+        cursor:pointer;display:flex;align-items:center;justify-content:center;
+        opacity:.5;transition:opacity .2s,color .2s,border-color .2s;padding:0}
+      .mc-timer ha-icon{--mdc-icon-size:14px}
+      .mc-timer:hover{opacity:1}
+      .mc-timer.attivo{opacity:1;color:#ffd694;border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.16)}
+      .mc-card[data-icona="piena"] .mc-timer{z-index:3}
       /* Popup immersivo: foglio a schermo intero che sale dal basso (stile
          "bottom sheet" iOS), non più il piccolo riquadro centrato — icona
          grande, azioni rapide, poi lo storico consumi già esistente. */
@@ -1152,11 +1166,53 @@ class MiniCard extends HTMLElement {
         border-radius:12px;border:1px solid var(--mc-stroke);font-size:12.5px;font-weight:700;color:var(--mc-ink)}
       .mc-avgrow small{display:block;color:var(--mc-muted);font-weight:600;font-size:10px;margin-top:2px}
       .mc-empty{color:var(--mc-muted);font-size:12.5px;text-align:center;padding:18px 0}
+      /* ---------------------------------------------------------- timer */
+      /* Visibile da subito, senza la classe "on" da accendere a mano: il
+         foglio grande usa una transizione che non avanza se la scheda non e
+         in primo piano, e resterebbe fuori schermo. Qui sale con
+         un'animazione, che parte da sola. */
+      .mc-scrim.mc-tmscrim{opacity:1;pointer-events:auto}
+      .mc-scrim.mc-tmscrim .mc-modal{transform:none;animation:mc-sale .24s cubic-bezier(.32,.72,0,1)}
+      @keyframes mc-sale{from{transform:translateY(100%)}to{transform:none}}
+      .mc-tmbody{display:flex;flex-direction:column;gap:2px;color:var(--mc-ink)}
+      .mc-tmh{display:flex;align-items:center;gap:10px}
+      .mc-tmt{flex:1;font-size:18px;font-weight:850}
+      .mc-tmx{width:30px;height:30px;border-radius:50%;flex:0 0 auto;cursor:pointer;font-size:14px;line-height:1;
+        border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
+      .mc-tmsub{font-size:12.5px;font-weight:700;color:var(--mc-muted);margin-bottom:6px}
+      .mc-tmavviso{margin:6px 0;padding:9px 12px;border-radius:12px;font-size:12px;font-weight:700;
+        background:rgba(255,176,32,.14);border:1px solid rgba(255,176,32,.4);color:#ffd694}
+      .mc-tmgruppo{font-size:9.5px;font-weight:850;text-transform:uppercase;letter-spacing:.09em;
+        color:var(--mc-muted);margin-top:16px}
+      .mc-tmnota{font-size:11.5px;line-height:1.45;color:var(--mc-muted);margin:3px 0 9px}
+      .mc-tmrow2{display:flex;gap:10px}
+      .mc-tmrow2 label{flex:1;display:flex;flex-direction:column;gap:5px;
+        font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-muted)}
+      /* I campi ora del browser nascono chiari: senza questo, su fondo scuro
+         restavano bianchi con le cifre invisibili. */
+      .mc-tmin{padding:10px 11px;border-radius:12px;font:inherit;font-size:15px;font-weight:700;
+        border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink);
+        color-scheme:dark;width:100%;box-sizing:border-box}
+      .mc-tmquick{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+      .mc-tmq{flex:1 1 46%;padding:11px 6px;border-radius:12px;cursor:pointer;font:inherit;
+        font-size:12px;font-weight:800;border:1px solid var(--mc-stroke);
+        background:rgba(255,255,255,.05);color:var(--mc-ink)}
+      .mc-tmq:hover{border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.12)}
+      .mc-tmq:disabled{opacity:.5;cursor:default}
+      .mc-tmgrid{display:grid;grid-template-columns:auto 1fr 1fr;gap:7px;align-items:center}
+      .mc-tmlab{font-size:9.5px;font-weight:850;text-transform:uppercase;letter-spacing:.07em;
+        color:var(--mc-muted);text-align:center}
+      .mc-tmgiorno{font-size:12.5px;font-weight:800;padding-right:6px;white-space:nowrap}
+      .mc-tmazioni{display:flex;gap:8px;margin-top:20px}
+      .mc-tmazioni .mc-cbtn{font-size:12.5px;padding:12px 0}
+
       @media(prefers-reduced-motion:reduce){.mc *{animation:none!important}}
     </style>
     <div class="mc">
       <div class="mc-card" data-icon="${this._esc(this._cfg.icon_type)}" data-mode="${this._esc(this._cfg.mode || "device")}" data-icona="${this._esc(this._modoIcona())}" data-role="tap">
         <button class="mc-info" data-role="info" title="Informazioni e impostazioni" hidden>⚙</button>
+        <button class="mc-timer" data-role="timer" title="Timer di accensione e spegnimento" hidden>
+          <ha-icon icon="mdi:timer-outline"></ha-icon></button>
         <div class="mc-iconwrap">${this._icon()}</div>
         <div class="mc-textwrap">
           <div class="mc-name">${this._esc(this._cfg.name)}</div>
@@ -1184,7 +1240,8 @@ class MiniCard extends HTMLElement {
         this._modoIcona() === "piena" ? "xMidYMin meet" : "xMidYMid meet");
     }
     this._el.addEventListener("click", e => {
-      if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')) return;
+      if (e.target.closest('[data-role="badge"]') || e.target.closest('[data-role="info"]')
+        || e.target.closest('[data-role="timer"]')) return;
       if (this._cfg.path) { this._navigate(this._cfg.path); return; }
       this._openImmersive();
     });
@@ -1192,6 +1249,8 @@ class MiniCard extends HTMLElement {
     badge.onclick = e => { e.stopPropagation(); this._toggleChiesto(); };
     const infoBtn = this._el.querySelector('[data-role="info"]');
     infoBtn.onclick = e => { e.stopPropagation(); this._openMoreInfo(); };
+    const timerBtn = this._el.querySelector('[data-role="timer"]');
+    timerBtn.onclick = e => { e.stopPropagation(); this._openTimer(); };
   }
 
   // Stessa navigazione interna (senza ricaricare la pagina) che usa HA per
@@ -1270,6 +1329,240 @@ class MiniCard extends HTMLElement {
     ov.querySelector("[data-no]").onclick = e => { e.stopPropagation(); chiudi(); };
     ov.querySelector("[data-si]").onclick = e => { e.stopPropagation(); chiudi(); siFai(); };
     ov.onclick = e => { e.stopPropagation(); if (e.target === ov) chiudi(); };
+  }
+
+  // ====================================================================== timer
+  // Non un conto alla rovescia del browser (morirebbe chiudendo la pagina, e
+  // di notte il telefono dorme): AUTOMAZIONI VERE di Home Assistant, che
+  // restano visibili e modificabili anche da Impostazioni. Stesso motore gia
+  // collaudato sulla card del clima.
+  //
+  // Ogni giorno puo avere il suo orario: un trigger per giorno che porta l'id
+  // del giorno, piu una condizione che accoppia "quale trigger e scattato" con
+  // "che giorno e oggi". Cosi le azioni si scrivono una volta sola invece di
+  // ripeterle sette volte.
+  _timerId(quale) {
+    const slug = (this._cfg.switch || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+    return "mini_card_" + quale + "_" + slug;
+  }
+
+  // L'entita dell'automazione si ritrova dal suo id interno, non dal nome: il
+  // nome lo slugifica Home Assistant e non e prevedibile.
+  _timerEntita(quale) {
+    const id = this._timerId(quale);
+    return Object.keys(this._hass.states).find(e =>
+      e.startsWith("automation.") && this._hass.states[e].attributes.id === id) || null;
+  }
+
+  _timerAcceso() {
+    if (!this._hass || !this._cfg.switch) return false;
+    return ["on", "off", "once_on", "once_off"].some(q => {
+      const e = this._timerEntita(q);
+      return e && this._hass.states[e].state === "on";
+    });
+  }
+
+  async _leggiTimer(quale) {
+    try { return await this._hass.callApi("get", "config/automation/config/" + this._timerId(quale)); }
+    catch (e) { return null; }
+  }
+
+  _hhmm(v) { return typeof v === "string" ? v.slice(0, 5) : ""; }
+
+  _leggiOrari(cfg) {
+    const out = {};
+    if (!cfg) return out;
+    (cfg.triggers || cfg.trigger || []).forEach(tr => {
+      if (!tr || !tr.id || typeof tr.at !== "string") return;
+      out[tr.id] = this._hhmm(tr.at);
+    });
+    return out;
+  }
+
+  _primoOrario(cfg) {
+    const tr = ((cfg && (cfg.triggers || cfg.trigger)) || [])[0];
+    return tr && typeof tr.at === "string" ? this._hhmm(tr.at) : "";
+  }
+
+  // Un ordine singolo: scatta la prossima volta che l'orologio segna quell'ora
+  // e poi si disattiva da solo.
+  async _scriviSingolo(quale, ora) {
+    if (!ora) {
+      try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(quale)); } catch (e) { /* non c'era */ }
+      return;
+    }
+    const acceso = quale === "once_on";
+    const dom = this._cfg.switch.split(".")[0];
+    await this._hass.callApi("post", "config/automation/config/" + this._timerId(quale), {
+      id: this._timerId(quale),
+      alias: "Mini Card - " + (acceso ? "accendi " : "spegni ") + (this._cfg.name || this._cfg.switch) + " (una volta)",
+      description: "Creata da Mini Card. Ordine singolo: agisce una volta e poi si disattiva da sola.",
+      mode: "single",
+      triggers: [{ trigger: "time", at: ora.length === 5 ? ora + ":00" : ora }],
+      conditions: [],
+      actions: [
+        { action: dom + (acceso ? ".turn_on" : ".turn_off"), target: { entity_id: this._cfg.switch } },
+        // "this.entity_id" e il modo giusto per farle riferire a se stessa
+        // senza indovinare il nome che HA le dara.
+        { action: "automation.turn_off", target: { entity_id: "{{ this.entity_id }}" }, data: { stop_actions: false } },
+      ],
+    });
+  }
+
+  async _scriviProgramma(quale, orari) {
+    const giorni = Object.keys(orari).filter(g => orari[g]);
+    // Niente orari per questo verso: l'automazione va tolta, non lasciata in
+    // giro a scattare per conto suo.
+    if (!giorni.length) {
+      try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(quale)); } catch (e) { /* non c'era */ }
+      return;
+    }
+    const acceso = quale === "on";
+    const dom = this._cfg.switch.split(".")[0];
+    await this._hass.callApi("post", "config/automation/config/" + this._timerId(quale), {
+      id: this._timerId(quale),
+      alias: "Mini Card - " + (acceso ? "accendi " : "spegni ") + (this._cfg.name || this._cfg.switch),
+      description: "Creata da Mini Card. Un orario per giorno; i giorni lasciati vuoti non fanno niente.",
+      mode: "single",
+      triggers: giorni.map(g => ({ trigger: "time", at: orari[g] + ":00", id: g })),
+      conditions: [{
+        condition: "template",
+        value_template: "{{ trigger.id == now().strftime('%a') | lower }}",
+      }],
+      actions: [{ action: dom + (acceso ? ".turn_on" : ".turn_off"), target: { entity_id: this._cfg.switch } }],
+    });
+  }
+
+  // "Spegni fra N minuti": l'attesa la fa l'automazione sul server, non il
+  // browser. Il trigger di avvio serve solo a darle una forma valida; a farla
+  // partire adesso e la chiamata a automation.trigger qui sotto.
+  async _spegniFra(minuti) {
+    const dom = this._cfg.switch.split(".")[0];
+    await this._hass.callApi("post", "config/automation/config/" + this._timerId("once_off"), {
+      id: this._timerId("once_off"),
+      alias: "Mini Card - spegni " + (this._cfg.name || this._cfg.switch) + " fra " + minuti + " min",
+      description: "Creata da Mini Card. Parte adesso, aspetta e spegne. Poi si disattiva da sola.",
+      mode: "single",
+      triggers: [{ trigger: "homeassistant", event: "start" }],
+      conditions: [],
+      actions: [
+        { delay: { minutes: minuti } },
+        { action: dom + ".turn_off", target: { entity_id: this._cfg.switch } },
+        { action: "automation.turn_off", target: { entity_id: "{{ this.entity_id }}" }, data: { stop_actions: false } },
+      ],
+    });
+    await new Promise(r => setTimeout(r, 700));
+    const ent = this._timerEntita("once_off");
+    if (ent) await this._hass.callService("automation", "trigger", { entity_id: ent, skip_condition: true });
+  }
+
+  async _openTimer() {
+    const ov = document.createElement("div");
+    ov.className = "mc-scrim mc-tmscrim";
+    ov.innerHTML = `<div class="mc-modal"><div class="mc-sheet-handle"></div>
+      <div class="mc-tmbody">Leggo il programma...</div></div>`;
+    ov.onclick = e => { if (e.target === ov) ov.remove(); };
+    this.querySelector(".mc").appendChild(ov);
+    const body = ov.querySelector(".mc-tmbody");
+
+    const cfgOn = await this._leggiTimer("on");
+    const cfgOff = await this._leggiTimer("off");
+    const cfgOnceOn = await this._leggiTimer("once_on");
+    const cfgOnceOff = await this._leggiTimer("once_off");
+    const orariOn = this._leggiOrari(cfgOn);
+    const orariOff = this._leggiOrari(cfgOff);
+    const onceOn = this._primoOrario(cfgOnceOn);
+    const onceOff = this._primoOrario(cfgOnceOff);
+
+    const GIORNI = [["mon", "Lunedi"], ["tue", "Martedi"], ["wed", "Mercoledi"], ["thu", "Giovedi"],
+      ["fri", "Venerdi"], ["sat", "Sabato"], ["sun", "Domenica"]];
+    const tutteEnt = () => ["on", "off", "once_on", "once_off"].map(q => this._timerEntita(q)).filter(Boolean);
+    let attivo = tutteEnt().some(e => this._hass.states[e].state === "on");
+
+    const disegna = () => {
+      body.innerHTML = `
+        <div class="mc-tmh">
+          <div class="mc-tmt">Timer</div>
+          <button class="mc-tmx" data-chiudi>&#10005;</button>
+        </div>
+        <div class="mc-tmsub">${this._esc(this._cfg.name || this._cfg.switch)}</div>
+        ${attivo ? "" : `<div class="mc-tmavviso">I timer sono sospesi: non scatteranno finche non li riattivi.</div>`}
+
+        <div class="mc-tmgruppo">Solo per stavolta</div>
+        <div class="mc-tmnota">Scatta la prossima volta che l'orologio segna quell'ora, poi si spegne da solo.</div>
+        <div class="mc-tmrow2">
+          <label>Accendi alle<input type="time" class="mc-tmin" data-once="on" value="${onceOn}"></label>
+          <label>Spegni alle<input type="time" class="mc-tmin" data-once="off" value="${onceOff}"></label>
+        </div>
+        <div class="mc-tmquick">
+          ${[30, 60, 90, 120].map(m => `<button class="mc-tmq" data-fra="${m}">Spegni fra ${m} min</button>`).join("")}
+        </div>
+
+        <div class="mc-tmgruppo">Programma della settimana</div>
+        <div class="mc-tmnota">Ogni giorno puo avere i suoi orari. Lascia vuoto per non fare niente quel giorno.</div>
+        <div class="mc-tmgrid">
+          <div class="mc-tmlab"></div><div class="mc-tmlab">Accendi</div><div class="mc-tmlab">Spegni</div>
+          ${GIORNI.map(([k, nome]) => `
+            <div class="mc-tmgiorno">${nome}</div>
+            <input type="time" class="mc-tmin" data-on="${k}" value="${orariOn[k] || ""}">
+            <input type="time" class="mc-tmin" data-off="${k}" value="${orariOff[k] || ""}">`).join("")}
+        </div>
+
+        <div class="mc-tmazioni">
+          <button class="mc-cbtn" data-sospendi>${attivo ? "Sospendi" : "Riattiva"}</button>
+          <button class="mc-cbtn" data-cancella>Cancella tutto</button>
+          <button class="mc-cbtn si" data-salva>Salva</button>
+        </div>`;
+
+      body.querySelector("[data-chiudi]").onclick = () => ov.remove();
+
+      body.querySelectorAll("[data-fra]").forEach(b => b.onclick = async () => {
+        b.disabled = true; b.textContent = "Imposto...";
+        await this._spegniFra(parseInt(b.dataset.fra, 10));
+        ov.remove();
+      });
+
+      body.querySelector("[data-sospendi]").onclick = async () => {
+        const ent = tutteEnt();
+        if (!ent.length) return;
+        const srv = attivo ? "turn_off" : "turn_on";
+        for (const e of ent) await this._hass.callService("automation", srv, { entity_id: e });
+        await new Promise(r => setTimeout(r, 700));
+        attivo = ent.some(e => this._hass.states[e] && this._hass.states[e].state === "on");
+        disegna();
+      };
+
+      body.querySelector("[data-cancella]").onclick = () => {
+        this._confirm({
+          titolo: "Cancellare tutti i timer?",
+          sotto: "Le automazioni create da questa card vengono rimosse.",
+          azione: "Cancella", acceso: true,
+        }, async () => {
+          for (const q of ["on", "off", "once_on", "once_off"]) {
+            try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(q)); } catch (e) { /* non c'era */ }
+          }
+          ov.remove();
+        });
+      };
+
+      body.querySelector("[data-salva]").onclick = async () => {
+        const b = body.querySelector("[data-salva]");
+        b.disabled = true; b.textContent = "Salvo...";
+        const leggi = attr => {
+          const out = {};
+          body.querySelectorAll("[data-" + attr + "]").forEach(i => { if (i.value) out[i.dataset[attr]] = i.value; });
+          return out;
+        };
+        const once = {};
+        body.querySelectorAll("[data-once]").forEach(i => { once[i.dataset.once] = i.value; });
+        await this._scriviProgramma("on", leggi("on"));
+        await this._scriviProgramma("off", leggi("off"));
+        await this._scriviSingolo("once_on", once.on);
+        await this._scriviSingolo("once_off", once.off);
+        ov.remove();
+      };
+    };
+    disegna();
   }
 
   // Un consumo che balla intorno alla soglia (un frigo che oscilla fra 8 e
@@ -1518,6 +1811,12 @@ class MiniCard extends HTMLElement {
 
     const infoBtn = this._el.querySelector('[data-role="info"]');
     infoBtn.hidden = !this._priorityEntity();
+
+    // L'orologio compare solo se richiesto e solo se c'e qualcosa da accendere:
+    // senza presa collegata un timer non avrebbe su cosa agire.
+    const timerBtn = this._el.querySelector('[data-role="timer"]');
+    timerBtn.hidden = !(this._cfg.mostra_timer && this._cfg.switch);
+    if (!timerBtn.hidden) timerBtn.classList.toggle("attivo", this._timerAcceso());
 
     if (t != null) {
       // L'altezza del mercurio funziona su QUALSIASI icona (anche personalizzata)
@@ -2122,6 +2421,9 @@ class MiniCardEditor extends HTMLElement {
           </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
       </div>
+      <div class="fld"><label>Timer</label>
+        <label class="ck"><input type="checkbox" id="f_timer"${c.mostra_timer ? " checked" : ""}> Metti l'orologio sulla card</label>
+        <span class="h">Compare in alto a sinistra e apre la programmazione: accendi/spegni a orario, un ordine singolo, oppure "spegni fra 30 minuti". Sono automazioni vere di Home Assistant, quindi funzionano anche a telefono spento. Serve la presa collegata qui sopra.</span></div>
       <div class="fld"><label>Prima di accendere o spegnere</label>
         <label class="ck"><input type="checkbox" id="f_conferma"${c.conferma_accensione !== false ? " checked" : ""}> Chiedi conferma</label>
         <span class="h">Il tasto acceso/spento sta a un dito da dove si tocca per aprire la card: capita di premerlo per sbaglio. Togli la spunta per farlo agire subito.</span></div>
@@ -2196,6 +2498,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_conferma", "change", e => this._set("conferma_accensione", e.target.checked));
+    on("#f_timer", "change", e => this._set("mostra_timer", e.target.checked));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
     on("#f_scaldo", "change", e => this._set("soglia_caldo", parseFloat(String(e.target.value).replace(",", ".")) || 26));
     on("#f_price", "change", e => this._set("prezzo_kwh", parseFloat(String(e.target.value).replace(",", ".")) || 0.30));
