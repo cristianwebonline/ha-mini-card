@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.21.0";
+const MC_VERSION = "1.22.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -863,16 +863,35 @@ class MiniCard extends HTMLElement {
         margin:0;aspect-ratio:auto;z-index:0}
       .mc-card[data-icona="piena"] .mc-svg{width:100%;height:100%;filter:none}
       /* La velatura scura dal basso: serve a leggere il testo qualunque cosa
-         ci sia disegnato sotto, chiara o scura che sia. */
+         ci sia disegnato sotto, chiara o scura che sia.
+         Arrivava solo a meta card (si spegneva del tutto al 55% di altezza):
+         andava benissimo per un nome corto ("Frigo", una riga), ma con un
+         nome lungo in maiuscolo ("LAVASTOVIGLIE") piu stato, consumo e watt
+         il blocco di testo sale ben oltre meta' card — e la parte che
+         finiva sopra il 55% restava senza velatura, appoggiata direttamente
+         sul disegno chiaro dell'elettrodomestico: illeggibile.
+         Ora la velatura sale fin quasi in cima, restando pero leggera li
+         (15% invece di zero): protegge il testo qualunque sia la sua
+         altezza, senza spegnere del tutto la parte alta del disegno quando
+         il testo e corto e non ci arriva. */
       .mc-card[data-icona="piena"]::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
-        background:linear-gradient(to top,rgba(4,8,14,.92) 0%,rgba(4,8,14,.70) 30%,
-          rgba(4,8,14,0) 55%)}
+        background:linear-gradient(to top,
+          rgba(4,8,14,.94) 0%,
+          rgba(4,8,14,.82) 32%,
+          rgba(4,8,14,.5) 58%,
+          rgba(4,8,14,.15) 82%,
+          rgba(4,8,14,0) 100%)}
       /* Piu grandi: le misure di prima erano tarate per stare sopra al disegno
          senza coprirlo, ma il risultato era una scritta da leggere strizzando
          gli occhi. Ora che il disegno sta in alto e lo spazio sotto e libero,
-         il testo puo prendersi quello che gli serve. */
+         il testo puo prendersi quello che gli serve.
+         Il margine a destra lascia libero l'ingranaggio delle impostazioni:
+         su un nome corto il blocco di testo sta comunque in basso e non lo
+         incontra mai, ma un nome lungo puo salire fino a quell'angolo, e
+         l'ingranaggio deve restare un bottone isolato, non una lettera in
+         mezzo alla scritta. */
       .mc-card[data-icona="piena"] .mc-name{position:relative;z-index:2;margin:0;
-        padding:0 4.5cqw;font-size:clamp(13px,10cqw,30px);line-height:1.12;color:#fff;
+        padding:0 30px 0 4.5cqw;font-size:clamp(13px,10cqw,30px);line-height:1.12;color:#fff;
         white-space:normal;text-shadow:0 1px 5px rgba(0,0,0,.9)}
       .mc-card[data-icona="piena"] .mc-sub{position:relative;z-index:2;
         padding:1.5cqw 4.5cqw 4.5cqw;font-size:clamp(9.5px,6.2cqw,18px);line-height:1.28;
