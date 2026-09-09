@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.23.0";
+const MC_VERSION = "1.24.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -865,28 +865,30 @@ class MiniCard extends HTMLElement {
          card. Serve per avere UN contenitore a cui dare un fondo, in
          "piena", senza toccare come si dispongono le altre due modalita. */
       .mc-textwrap{display:contents}
-      .mc-card[data-icona="piena"]{padding:0;gap:0;justify-content:flex-end;align-items:stretch}
-      .mc-card[data-icona="piena"] .mc-iconwrap{position:absolute;inset:0;width:100%;height:100%;
-        margin:0;aspect-ratio:auto;z-index:0}
-      .mc-card[data-icona="piena"] .mc-svg{width:100%;height:100%;filter:none}
-      /* UN FONDINO SOLO DIETRO AL TESTO, non piu un velo su tutta la card.
-         Prima si scuriva progressivamente dal basso per rendere leggibile
-         il testo ovunque finisse: ma piu si scuriva, meno si vedeva il
-         disegno che era il motivo stesso di scegliere "piena" invece
-         dell'iconcina piccola — un compromesso che scontentava sempre uno
-         dei due. Qui il disegno resta scoperto e a colori pieni dappertutto
-         tranne che in un unico rettangolo, largo quanto il blocco di testo
-         e alto solo quanto serve al suo contenuto: cresce da solo con un
-         nome lungo, resta piccolo con uno corto, e il resto della card
-         (il disegno) non lo tocca mai. */
-      .mc-card[data-icona="piena"] .mc-textwrap{display:flex;flex-direction:column;
-        position:relative;z-index:2;margin:2.5cqw;padding:2.2cqw 4cqw;border-radius:12px;
-        background:rgba(6,10,16,.66);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);
-        box-shadow:0 3px 12px rgba(0,0,0,.35)}
+      /* DIVISIONE VERA: il disegno sopra a tutta larghezza, le info in una
+         fascia sotto — mai sovrapposti, come nelle card "Stanza" di prima
+         quando avevano poco da dire. Prima il testo galleggiava SOPRA il
+         disegno (un velo su tutta la card, poi un fondino fluttuante):
+         qualunque cosa si scegliesse per renderlo leggibile, copriva un
+         pezzo dell'illustrazione. Qui invece i due non si toccano mai: la
+         card si divide in due righe vere, l'icona prende quella che resta
+         libera, il testo prende quella che gli serve — mai l'uno sopra
+         l'altra. Con un nome corto ("Frigo") il disegno prende quasi tutta
+         la card; con uno lungo in maiuscolo la fascia sotto cresce un po',
+         ma il disegno sopra resta SEMPRE scoperto, mai coperto. */
+      .mc-card[data-icona="piena"]{padding:0;gap:0;align-items:stretch}
+      .mc-card[data-icona="piena"] .mc-iconwrap{position:relative;flex:1 1 auto;min-height:0;
+        width:100%;height:auto;margin:0;aspect-ratio:auto;overflow:hidden;
+        display:flex;align-items:center;justify-content:center}
+      .mc-card[data-icona="piena"] .mc-svg{width:100%;height:100%;filter:none;display:block}
+      .mc-card[data-icona="piena"] .mc-textwrap{display:flex;flex-direction:column;flex:0 0 auto;
+        gap:.6cqw;position:relative;z-index:2;width:100%;margin:0;
+        padding:2.2cqw 4cqw calc(2.2cqw + env(safe-area-inset-bottom,0px));
+        background:rgba(6,10,16,.88)}
       .mc-card[data-icona="piena"] .mc-name{margin:0;padding:0;
-        font-size:clamp(13px,10cqw,26px);line-height:1.14;color:#fff;white-space:normal}
-      .mc-card[data-icona="piena"] .mc-sub{padding:1cqw 0 0;
-        font-size:clamp(9.5px,6cqw,16px);line-height:1.28;white-space:normal;
+        font-size:clamp(13px,9cqw,22px);line-height:1.14;color:#fff;white-space:normal}
+      .mc-card[data-icona="piena"] .mc-sub{padding:0;
+        font-size:clamp(9.5px,5.6cqw,14px);line-height:1.28;white-space:normal;
         color:rgba(255,255,255,.9)}
       /* Su una STANZA non hanno senso: il tasto acceso/spento (non ha una
          presa), "Apri la vista" (la card si tocca e ci porta, si capisce), e
@@ -899,18 +901,20 @@ class MiniCard extends HTMLElement {
       .mc-card[data-mode="room"] .mc-state,
       .mc-card[data-mode="room"] .mc-metric{display:none!important}
       .mc-card[data-mode="room"] .mc-badge{display:none!important}
-      .mc-card[data-icona="piena"] .mc-state{padding:.5cqw 0 0;
-        font-size:clamp(10px,5.2cqw,13px);color:rgba(255,255,255,.85)}
-      .mc-card[data-icona="piena"] .mc-metric{padding:1cqw 0 0;
-        font-size:clamp(14px,8.5cqw,22px);color:#fff}
+      .mc-card[data-icona="piena"] .mc-state{padding:0;
+        font-size:clamp(10px,4.8cqw,12px);color:rgba(255,255,255,.85)}
+      .mc-card[data-icona="piena"] .mc-metric{padding:0;
+        font-size:clamp(14px,7.5cqw,19px);color:#fff}
       .mc-card[data-icona="piena"] .mc-metric small{color:rgba(255,255,255,.7)}
       .mc-card[data-icona="piena"] .mc-info{z-index:3}
-      .mc-card[data-icona="piena"] .mc-badge{align-self:flex-start;margin-top:.5cqw}
-      /* Il velo verde di "sta consumando" su una foto a tutta card sarebbe
-         una patina addosso al disegno: sulle stanze resta appena accennato. */
-      .mc-card[data-icona="piena"].on.lavora{background-image:linear-gradient(
-        rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.16)),
-        rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.16)))}
+      .mc-card[data-icona="piena"] .mc-badge{align-self:flex-start}
+      /* Il velo verde di "sta consumando" si vedeva solo dove il disegno
+         lasciava un angolo scoperto: ora che il disegno ha la sua riga
+         intera, gli si appoggia sopra — sulle stanze resta appena accennato
+         come prima. */
+      .mc-card[data-icona="piena"].on.lavora .mc-iconwrap::after{content:"";
+        position:absolute;inset:0;pointer-events:none;
+        background:rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.22))}
 
       /* ICONA PICCOLA — il disegno in mezzo e le scritte sotto. Anche qui
          TUTTO segue la larghezza della card: ingrandisci la tessera e crescono
