@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.25.0";
+const MC_VERSION = "1.26.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -956,16 +956,30 @@ class MiniCard extends HTMLElement {
          serve su qualunque sfondo. */
       /* Acceso ma fermo: una velatura appena accennata. In funzione: piena.
          Cosi si distingue con un'occhiata, senza leggere. */
-      .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07));border-color:rgba(56,224,138,.22)}
+      /* Il bagliore si aggiunge all'ombra di sempre, non la sostituisce:
+         box-shadow scritto due volte nella stessa riga vuol dire "questa
+         ombra E questo bagliore insieme", non "l'uno o l'altro" — se si
+         dimentica l'ombra base la card sembra appiattita, come se avesse
+         perso la sua elevazione. */
+      .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07));
+        border-color:rgba(56,224,138,.22);
+        box-shadow:0 8px 20px rgba(0,0,0,.32),0 0 14px rgba(56,224,138,.28);
+        transition:background-color .5s ease,border-color .5s ease,box-shadow .5s ease}
       /* L'opacita segue --mc-intensita, scritta da _update() in base a quanto
          sta consumando davvero: appena sopra soglia resta leggera (.10 circa),
          a pieno regime arriva piena (.30). Senza la variabile (un "lavora"
-         senza sensore di potenza) resta com'era, a meta scala. */
+         senza sensore di potenza) resta com'era, a meta scala.
+         Il bagliore segue la stessa scala: un apparecchio appena sopra
+         soglia si nota appena, uno a pieno regime si vede da lontano — e la
+         differenza che si voleva vedere, non solo leggere nel numero. */
       .mc-card.on.lavora{
         background-image:linear-gradient(
           rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.30)),
           rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.30)));
-        border-color:rgba(56,224,138,calc(0.16 + var(--mc-intensita,0.5) * 0.32))}
+        border-color:rgba(56,224,138,calc(0.16 + var(--mc-intensita,0.5) * 0.32));
+        box-shadow:0 8px 20px rgba(0,0,0,.32),
+          0 0 calc(10px + var(--mc-intensita,0.5) * 18px)
+          rgba(56,224,138,calc(0.22 + var(--mc-intensita,0.5) * 0.4))}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
       .mc-card.on .mc-state{color:var(--mc-c-ok,#8ff0b4)}
       /* In attesa il testo resta neutro: il verde acceso vuol dire "sta
@@ -1455,7 +1469,12 @@ class MiniCard extends HTMLElement {
       const heroIconCls = "mc-hero-icon mc-card" + (cfg.mode === "room" ? " mc-hero-icon-room" : "")
         + (on ? " on" : "") + (st === "lavora" ? " lavora" : "") + (st === "attesa" ? " attesa" : "");
       const actions = [];
-      if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle">⏻ ${on ? "Spegni" : "Accendi"}</button>`);
+      // "⏻" (il simbolo di accensione unicode) non ce l'hanno tutti i font: su
+      // certi telefoni resta un quadratino vuoto al posto dell'icona, come si
+      // e visto. mdi:power e un disegno vero, non un carattere che dipende
+      // da quali simboli il sistema ha deciso di includere: si vede uguale
+      // dappertutto, come tutte le altre icone di questo pannello.
+      if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle"><ha-icon icon="mdi:power"></ha-icon> ${on ? "Spegni" : "Accendi"}</button>`);
       if (this._priorityEntity()) actions.push(`<button class="mc-pill" data-act="info">⚙ Informazioni</button>`);
       if (cfg.mode === "room" && cfg.path) actions.push(`<button class="mc-pill mc-pill-primary" data-act="nav">Apri la vista →</button>`);
       const chips = this._subParts().map(p => `<div class="mc-chip">${p}</div>`).join("");
