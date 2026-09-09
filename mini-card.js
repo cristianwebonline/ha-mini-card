@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.24.0";
+const MC_VERSION = "1.25.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -877,8 +877,18 @@ class MiniCard extends HTMLElement {
          la card; con uno lungo in maiuscolo la fascia sotto cresce un po',
          ma il disegno sopra resta SEMPRE scoperto, mai coperto. */
       .mc-card[data-icona="piena"]{padding:0;gap:0;align-items:stretch}
+      /* Senza un rapporto di base, su una card la cui altezza non e fissata
+         da nient'altro (niente "quadrata", niente riga che la tiene bassa)
+         l'icona cresceva quanto voleva: prendeva "height:100%" da un
+         contenitore la cui altezza dipendeva a sua volta da lei — un giro
+         che si scioglieva lasciando che l'SVG imponesse la SUA proporzione
+         nativa a piena larghezza, diventando un frigo alto il doppio del
+         normale che spingeva la fascia di testo fuori dallo schermo.
+         4:3 e una base ragionevole per un'illustrazione, non un tetto: dove
+         la card e gia alta per altri motivi (quadrata, una riga alta),
+         flex:1 la fa comunque crescere fino a riempire quello spazio. */
       .mc-card[data-icona="piena"] .mc-iconwrap{position:relative;flex:1 1 auto;min-height:0;
-        width:100%;height:auto;margin:0;aspect-ratio:auto;overflow:hidden;
+        width:100%;aspect-ratio:4/3;margin:0;overflow:hidden;
         display:flex;align-items:center;justify-content:center}
       .mc-card[data-icona="piena"] .mc-svg{width:100%;height:100%;filter:none;display:block}
       .mc-card[data-icona="piena"] .mc-textwrap{display:flex;flex-direction:column;flex:0 0 auto;
