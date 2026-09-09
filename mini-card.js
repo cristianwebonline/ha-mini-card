@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.28.0";
+const MC_VERSION = "1.29.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1084,17 +1084,35 @@ class MiniCard extends HTMLElement {
       /* Il foglio di conferma: nasce visibile (niente classe "on" da
          accendere) e sta al centro, non in fondo come il popup grande. */
       .mc-scrim.mc-conf{opacity:1;pointer-events:auto;align-items:center;padding:22px;z-index:12}
-      .mc-conferma{width:100%;max-width:330px;background:#1a1b21;border:1px solid rgba(255,255,255,.16);
-        border-radius:22px;padding:20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#f4f6f8;
-        animation:mc-entra .18s ease-out}
-      @keyframes mc-entra{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+      .mc-conferma{width:100%;max-width:340px;position:relative;overflow:hidden;
+        background:linear-gradient(170deg,#232833,#161a21);
+        border:1px solid rgba(255,255,255,.14);border-radius:26px;padding:26px 22px 20px;
+        box-shadow:0 30px 70px rgba(0,0,0,.62);color:#f4f6f8;text-align:center;
+        animation:mc-entra .2s cubic-bezier(.2,.9,.3,1.2)}
+      /* Un velo del colore dell'azione dietro l'icona: verde per accendere,
+         ambra per spegnere. Da solo dice gia cosa sta per succedere. */
+      .mc-conferma::before{content:"";position:absolute;top:-70px;left:50%;transform:translateX(-50%);
+        width:230px;height:170px;border-radius:50%;pointer-events:none;
+        background:radial-gradient(closest-side,rgba(56,224,138,.30),transparent)}
+      .mc-conferma.spegni::before{background:radial-gradient(closest-side,rgba(255,176,32,.28),transparent)}
+      @keyframes mc-entra{from{opacity:0;transform:translateY(18px) scale(.94)}to{opacity:1;transform:none}}
       @media (prefers-reduced-motion:reduce){.mc-conferma{animation:none}}
-      .mc-conferma-txt{font-size:14.5px;font-weight:700;margin-bottom:16px;line-height:1.5}
-      .mc-conferma-row{display:flex;gap:10px}
-      .mc-cbtn{flex:1;padding:12px 0;border-radius:13px;border:1px solid rgba(255,255,255,.16);
-        background:rgba(255,255,255,.06);color:#f4f6f8;font:inherit;font-size:13.5px;font-weight:800;cursor:pointer}
-      .mc-cbtn:hover{filter:brightness(1.25)}
-      .mc-cbtn.si{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:#8ff0b4}
+      .mc-conferma-icona{width:74px;height:74px;margin:0 auto 14px;position:relative}
+      .mc-conferma-icona svg{width:100%;height:100%;display:block}
+      .mc-conferma-tit{font-size:17px;font-weight:850;line-height:1.35;letter-spacing:-.2px}
+      .mc-conferma-sotto{font-size:12.5px;font-weight:600;line-height:1.45;color:#9fb0c0;margin-top:7px}
+      .mc-conferma-row{display:flex;gap:10px;margin-top:20px}
+      .mc-cbtn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+        padding:13px 0;border-radius:15px;border:1px solid rgba(255,255,255,.14);
+        background:rgba(255,255,255,.05);color:#c3cedb;font:inherit;font-size:13.5px;font-weight:800;
+        cursor:pointer;transition:filter .15s,transform .1s}
+      .mc-cbtn ha-icon{--mdc-icon-size:18px}
+      .mc-cbtn:hover{filter:brightness(1.22)}
+      .mc-cbtn:active{transform:scale(.97)}
+      .mc-cbtn.si{background:linear-gradient(135deg,rgba(56,224,138,.32),rgba(56,224,138,.16));
+        border-color:rgba(56,224,138,.55);color:#a6f5c8}
+      .mc-conferma.spegni .mc-cbtn.si{background:linear-gradient(135deg,rgba(255,176,32,.30),rgba(255,176,32,.14));
+        border-color:rgba(255,176,32,.55);color:#ffd694}
       .mc-sheet-handle{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.25);margin:6px auto 12px}
       .mc-mh{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
       .mc-mt{font-size:16px;font-weight:850;color:var(--mc-ink)}
@@ -1210,7 +1228,18 @@ class MiniCard extends HTMLElement {
     if (this._cfg.conferma_accensione === false) { this._toggle(); return; }
     const acceso = this._isOn();
     const nome = this._cfg.name || "questo dispositivo";
-    this._confirm(`${acceso ? "Spegnere" : "Accendere"} ${nome}?`, () => this._toggle());
+    // Il consumo di adesso e la ragione per cui uno esita: se sta lavorando,
+    // spegnere non e la stessa cosa che spegnere una presa ferma.
+    const p = this._num(this._cfg.power);
+    const sotto = acceso
+      ? (p != null && p > 1 ? `Sta consumando ${Math.round(p)} W in questo momento.` : "La presa e accesa ma non sta consumando.")
+      : "";
+    this._confirm({
+      titolo: acceso ? `Spegnere ${nome}?` : `Accendere ${nome}?`,
+      sotto,
+      azione: acceso ? "Spegni" : "Accendi",
+      acceso,
+    }, () => this._toggle());
   }
 
   // Agganciato a ".mc" e non alla tessera: .mc-card ha container-type, che
@@ -1219,16 +1248,21 @@ class MiniCard extends HTMLElement {
   // Nessun requestAnimationFrame e nessuna classe da accendere: il foglio
   // nasce visibile e l'entrata la fa un'animazione CSS, che parte anche se la
   // scheda non e in primo piano.
-  _confirm(testo, siFai) {
+  _confirm(opz, siFai) {
+    const o = typeof opz === "string" ? { titolo: opz } : opz;
     const vecchio = this.querySelector(".mc-scrim.mc-conf");
     if (vecchio) vecchio.remove();
     const ov = document.createElement("div");
     ov.className = "mc-scrim mc-conf";
-    ov.innerHTML = `<div class="mc-conferma">
-      <div class="mc-conferma-txt">${this._esc(testo)}</div>
+    ov.innerHTML = `<div class="mc-conferma${o.acceso ? " spegni" : ""}">
+      <div class="mc-conferma-icona">${this._icon()}</div>
+      <div class="mc-conferma-tit">${this._esc(o.titolo)}</div>
+      ${o.sotto ? `<div class="mc-conferma-sotto">${this._esc(o.sotto)}</div>` : ""}
       <div class="mc-conferma-row">
         <button class="mc-cbtn" data-no>Annulla</button>
-        <button class="mc-cbtn si" data-si>Conferma</button>
+        <button class="mc-cbtn si" data-si>
+          <ha-icon icon="mdi:power"></ha-icon>${this._esc(o.azione || "Conferma")}
+        </button>
       </div>
     </div>`;
     this.querySelector(".mc").appendChild(ov);
