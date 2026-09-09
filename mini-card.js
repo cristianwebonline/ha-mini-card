@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.22.0";
+const MC_VERSION = "1.23.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -858,44 +858,36 @@ class MiniCard extends HTMLElement {
          sotto, il testo sopra, e nessuno dei due ruba spazio all'altro.
          Le misure sono in cqw (percentuale della larghezza della card), quindi
          il testo cresce e cala da solo con la dimensione della tessera. */
+      /* Il pacchetto di testo (nome, stato, consumo, watt) e un elemento
+         solo nel markup, ma qui — fuori dalla modalita "piena" — non deve
+         cambiare niente: "contents" lo rende invisibile all'impaginazione,
+         come se i suoi figli fossero ancora attaccati direttamente alla
+         card. Serve per avere UN contenitore a cui dare un fondo, in
+         "piena", senza toccare come si dispongono le altre due modalita. */
+      .mc-textwrap{display:contents}
       .mc-card[data-icona="piena"]{padding:0;gap:0;justify-content:flex-end;align-items:stretch}
       .mc-card[data-icona="piena"] .mc-iconwrap{position:absolute;inset:0;width:100%;height:100%;
         margin:0;aspect-ratio:auto;z-index:0}
       .mc-card[data-icona="piena"] .mc-svg{width:100%;height:100%;filter:none}
-      /* La velatura scura dal basso: serve a leggere il testo qualunque cosa
-         ci sia disegnato sotto, chiara o scura che sia.
-         Arrivava solo a meta card (si spegneva del tutto al 55% di altezza):
-         andava benissimo per un nome corto ("Frigo", una riga), ma con un
-         nome lungo in maiuscolo ("LAVASTOVIGLIE") piu stato, consumo e watt
-         il blocco di testo sale ben oltre meta' card — e la parte che
-         finiva sopra il 55% restava senza velatura, appoggiata direttamente
-         sul disegno chiaro dell'elettrodomestico: illeggibile.
-         Ora la velatura sale fin quasi in cima, restando pero leggera li
-         (15% invece di zero): protegge il testo qualunque sia la sua
-         altezza, senza spegnere del tutto la parte alta del disegno quando
-         il testo e corto e non ci arriva. */
-      .mc-card[data-icona="piena"]::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
-        background:linear-gradient(to top,
-          rgba(4,8,14,.94) 0%,
-          rgba(4,8,14,.82) 32%,
-          rgba(4,8,14,.5) 58%,
-          rgba(4,8,14,.15) 82%,
-          rgba(4,8,14,0) 100%)}
-      /* Piu grandi: le misure di prima erano tarate per stare sopra al disegno
-         senza coprirlo, ma il risultato era una scritta da leggere strizzando
-         gli occhi. Ora che il disegno sta in alto e lo spazio sotto e libero,
-         il testo puo prendersi quello che gli serve.
-         Il margine a destra lascia libero l'ingranaggio delle impostazioni:
-         su un nome corto il blocco di testo sta comunque in basso e non lo
-         incontra mai, ma un nome lungo puo salire fino a quell'angolo, e
-         l'ingranaggio deve restare un bottone isolato, non una lettera in
-         mezzo alla scritta. */
-      .mc-card[data-icona="piena"] .mc-name{position:relative;z-index:2;margin:0;
-        padding:0 30px 0 4.5cqw;font-size:clamp(13px,10cqw,30px);line-height:1.12;color:#fff;
-        white-space:normal;text-shadow:0 1px 5px rgba(0,0,0,.9)}
-      .mc-card[data-icona="piena"] .mc-sub{position:relative;z-index:2;
-        padding:1.5cqw 4.5cqw 4.5cqw;font-size:clamp(9.5px,6.2cqw,18px);line-height:1.28;
-        white-space:normal;color:rgba(255,255,255,.95);text-shadow:0 1px 4px rgba(0,0,0,.9)}
+      /* UN FONDINO SOLO DIETRO AL TESTO, non piu un velo su tutta la card.
+         Prima si scuriva progressivamente dal basso per rendere leggibile
+         il testo ovunque finisse: ma piu si scuriva, meno si vedeva il
+         disegno che era il motivo stesso di scegliere "piena" invece
+         dell'iconcina piccola — un compromesso che scontentava sempre uno
+         dei due. Qui il disegno resta scoperto e a colori pieni dappertutto
+         tranne che in un unico rettangolo, largo quanto il blocco di testo
+         e alto solo quanto serve al suo contenuto: cresce da solo con un
+         nome lungo, resta piccolo con uno corto, e il resto della card
+         (il disegno) non lo tocca mai. */
+      .mc-card[data-icona="piena"] .mc-textwrap{display:flex;flex-direction:column;
+        position:relative;z-index:2;margin:2.5cqw;padding:2.2cqw 4cqw;border-radius:12px;
+        background:rgba(6,10,16,.66);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);
+        box-shadow:0 3px 12px rgba(0,0,0,.35)}
+      .mc-card[data-icona="piena"] .mc-name{margin:0;padding:0;
+        font-size:clamp(13px,10cqw,26px);line-height:1.14;color:#fff;white-space:normal}
+      .mc-card[data-icona="piena"] .mc-sub{padding:1cqw 0 0;
+        font-size:clamp(9.5px,6cqw,16px);line-height:1.28;white-space:normal;
+        color:rgba(255,255,255,.9)}
       /* Su una STANZA non hanno senso: il tasto acceso/spento (non ha una
          presa), "Apri la vista" (la card si tocca e ci porta, si capisce), e
          i watt (che stanno gia nella riga dei dati). Ma un APPARECCHIO con
@@ -907,19 +899,13 @@ class MiniCard extends HTMLElement {
       .mc-card[data-mode="room"] .mc-state,
       .mc-card[data-mode="room"] .mc-metric{display:none!important}
       .mc-card[data-mode="room"] .mc-badge{display:none!important}
-      /* Stesso trattamento di nome e sottotitolo: bianco con l'ombra, senno
-         sopra un disegno chiaro (un frigo bianco, una parete chiara) il
-         testo scuro di sempre sparirebbe. */
-      .mc-card[data-icona="piena"] .mc-state{position:relative;z-index:2;
-        padding:0 4.5cqw;font-size:clamp(10px,5.5cqw,15px);color:rgba(255,255,255,.95);
-        text-shadow:0 1px 4px rgba(0,0,0,.9)}
-      .mc-card[data-icona="piena"] .mc-metric{position:relative;z-index:2;
-        padding:0 4.5cqw 3cqw;font-size:clamp(14px,9cqw,26px);color:#fff;
-        text-shadow:0 1px 5px rgba(0,0,0,.9)}
-      .mc-card[data-icona="piena"] .mc-metric small{color:rgba(255,255,255,.75)}
+      .mc-card[data-icona="piena"] .mc-state{padding:.5cqw 0 0;
+        font-size:clamp(10px,5.2cqw,13px);color:rgba(255,255,255,.85)}
+      .mc-card[data-icona="piena"] .mc-metric{padding:1cqw 0 0;
+        font-size:clamp(14px,8.5cqw,22px);color:#fff}
+      .mc-card[data-icona="piena"] .mc-metric small{color:rgba(255,255,255,.7)}
       .mc-card[data-icona="piena"] .mc-info{z-index:3}
-      .mc-card[data-icona="piena"] .mc-badge{position:relative;z-index:2;align-self:center;
-        margin-bottom:3cqw}
+      .mc-card[data-icona="piena"] .mc-badge{align-self:flex-start;margin-top:.5cqw}
       /* Il velo verde di "sta consumando" su una foto a tutta card sarebbe
          una patina addosso al disegno: sulle stanze resta appena accennato. */
       .mc-card[data-icona="piena"].on.lavora{background-image:linear-gradient(
@@ -1102,11 +1088,13 @@ class MiniCard extends HTMLElement {
       <div class="mc-card" data-icon="${this._esc(this._cfg.icon_type)}" data-mode="${this._esc(this._cfg.mode || "device")}" data-icona="${this._esc(this._modoIcona())}" data-role="tap">
         <button class="mc-info" data-role="info" title="Informazioni e impostazioni" hidden>⚙</button>
         <div class="mc-iconwrap">${this._icon()}</div>
-        <div class="mc-name">${this._esc(this._cfg.name)}</div>
-        <div class="mc-badge" data-role="badge" hidden><span class="dot"></span><span class="lbl">—</span></div>
-        <div class="mc-state" data-role="state">—</div>
-        <div class="mc-sub" data-role="sub" hidden></div>
-        <div class="mc-metric" data-role="metricwrap" hidden><span data-role="power"></span><small>W</small></div>
+        <div class="mc-textwrap">
+          <div class="mc-name">${this._esc(this._cfg.name)}</div>
+          <div class="mc-badge" data-role="badge" hidden><span class="dot"></span><span class="lbl">—</span></div>
+          <div class="mc-state" data-role="state">—</div>
+          <div class="mc-sub" data-role="sub" hidden></div>
+          <div class="mc-metric" data-role="metricwrap" hidden><span data-role="power"></span><small>W</small></div>
+        </div>
       </div>
     </div>`;
     stopSwipeNavHijack(this.querySelector(".mc"));
