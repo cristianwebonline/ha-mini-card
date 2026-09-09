@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.18.0";
+const MC_VERSION = "1.19.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1209,31 +1209,42 @@ class MiniCard extends HTMLElement {
   }
 
   // Il nome dell'APPARECCHIO, non quello del sensore.
-  // Il sensore si chiama "Frigo power": e giusto per un sensore, perche in una
-  // lista di sensori serve sapere cosa misura. Ma qui si sta dicendo CHI sta
-  // consumando, e la risposta e "Frigo" — la parola "power" e rumore, e in
-  // italiano non vuol dire nemmeno niente. Si prova prima col nome del
-  // dispositivo a cui il sensore appartiene (quello vero, quello che hai
-  // scritto tu in Home Assistant); se non c'e, si toglie dalla coda del nome
-  // la parola che dice cosa misura. Solo in coda: un "Power bank" in salotto
-  // deve restare "Power bank".
+  // Qui si sta dicendo CHI sta consumando, quindi si parte dal nome con cui
+  // l'apparecchio si presenta — il friendly_name — e gli si toglie di dosso
+  // solo la parola che dice cosa misura: "Frigo - power" diventa "Frigo",
+  // "como camera da letto Power" diventa "Como camera da letto".
+  //
+  // Prima si partiva dal nome del DISPOSITIVO, ed era sbagliato: il
+  // dispositivo si chiama "Shelly como camera da letto", cioe la marca piu
+  // la stanza, mentre il friendly_name e il nome corto che si legge. Con
+  // "Frigo" tornavano uguali per caso, e l'errore non si vedeva.
+  // Il nome del dispositivo resta come ultima spiaggia, per i sensori che
+  // un friendly_name non ce l'hanno.
+  //
+  // La parola si toglie solo dalla CODA, mai dalla testa e mai in mezzo:
+  // togliendola anche in testa un "Power bank sala" diventerebbe "Bank
+  // sala". Provato davvero su tutti i nomi di casa prima di scegliere.
   _nomeApparecchio(id) {
     const st = this._hass.states[id];
     const attr = (st && st.attributes) || {};
-    const dev = this._nomeDispositivo(id);
-    if (dev) return dev;
-    let n = attr.friendly_name || id;
-    const code = ["power", "potenza", "consumo", "consumption", "energy",
-      "energia", "watt", "w", "current consumption", "active power"];
-    let cambiato = true;
-    while (cambiato) {
-      cambiato = false;
-      for (const c of code) {
-        const re = new RegExp("[\\s_-]+" + c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i");
-        if (re.test(n) && n.replace(re, "").trim()) { n = n.replace(re, "").trim(); cambiato = true; }
+    let n = String(attr.friendly_name || "").trim();
+    if (n) {
+      const code = ["active power", "current consumption", "power", "potenza",
+        "consumo", "consumption", "energy", "energia", "watt", "w"];
+      let cambiato = true;
+      while (cambiato) {
+        cambiato = false;
+        for (const c of code) {
+          const q = c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const coda = new RegExp("[\\s_·-]+" + q + "$", "i");
+          if (coda.test(n) && n.replace(coda, "").trim()) { n = n.replace(coda, "").trim(); cambiato = true; }
+        }
       }
+      // Molti nomi arrivano tutti minuscoli ("como camera da letto"): la
+      // prima lettera si alza, il resto si lascia com'e scritto.
+      if (n) return n.charAt(0).toUpperCase() + n.slice(1);
     }
-    return n;
+    return this._nomeDispositivo(id) || id;
   }
 
   // Il nome del dispositivo si legge dal registro, se il frontend ce l'ha
