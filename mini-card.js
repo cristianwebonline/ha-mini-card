@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.31.1";
+const MC_VERSION = "1.32.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1838,7 +1838,14 @@ class MiniCard extends HTMLElement {
     const parts = [];
     if (t != null) parts.push(`🌡️ ${this._fmt(t)}°C`);
     if (h != null) parts.push(`💧 ${Math.round(h)}%`);
-    if (todayKwh != null) parts.push(`⚡ ${this._fmt(todayKwh)} kWh oggi`);
+    // Quando la stanza STA consumando la cosa che interessa e quanto tira
+    // adesso, non quanto ha fatto da mezzanotte: i watt sono la risposta a
+    // "cosa sta succedendo di la". Quando invece e ferma i watt sarebbero uno
+    // zero inutile, e allora torna utile il totale del giorno.
+    const oraW = this._num(cfg.power);
+    const soglia = parseFloat(cfg.soglia) || 10;
+    if (oraW != null && oraW > soglia) parts.push(`⚡ ${Math.round(oraW)} W`);
+    else if (todayKwh != null) parts.push(`⚡ ${this._fmt(todayKwh)} kWh oggi`);
     if (cfg.group) {
       const g = this._hass.states[cfg.group];
       const members = (g && g.attributes && g.attributes.entity_id) || [];
