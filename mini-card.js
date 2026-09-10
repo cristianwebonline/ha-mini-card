@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.31.0";
+const MC_VERSION = "1.31.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1167,7 +1167,7 @@ class MiniCard extends HTMLElement {
          "bottom sheet" iOS), non più il piccolo riquadro centrato — icona
          grande, azioni rapide, poi lo storico consumi già esistente. */
       .mc-scrim{position:fixed;inset:0;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);display:flex;
-        align-items:flex-end;justify-content:center;padding:0;z-index:9;opacity:0;pointer-events:none;transition:opacity .18s}
+        align-items:flex-end;justify-content:center;padding:0;z-index:100;opacity:0;pointer-events:none;transition:opacity .18s}
       .mc-scrim.on{opacity:1;pointer-events:auto}
       .mc-modal{width:100%;max-width:420px;max-height:92vh;overflow-y:auto;background:#1a1b21;border:1px solid rgba(255,255,255,.14);
         border-bottom:none;border-radius:26px 26px 0 0;padding:10px 20px 28px;box-shadow:0 -14px 50px rgba(0,0,0,.55);
