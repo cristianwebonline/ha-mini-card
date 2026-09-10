@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.30.0";
+const MC_VERSION = "1.31.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -795,7 +795,85 @@ class MiniCard extends HTMLElement {
       const k = this._dkey(new Date(pts[i].t));
       daily[k] = (daily[k] || 0) + kwh;
     }
+    // Le stesse letture dicono anche QUANDO ha lavorato: si tengono, invece di
+    // buttarle dopo la somma del giorno. Nessuna richiesta in piu al server.
+    this._sess = this._sessioniDa(pts);
     return daily;
+  }
+
+  // Da una fila di letture di potenza alle accensioni vere e proprie.
+  //
+  // Il punto delicato e la PAUSA: una lavastoviglie fra il riscaldamento e il
+  // risciacquo sta ferma anche dieci minuti, e spezzare li il ciclo darebbe
+  // "sei accensioni da un quarto d'ora" invece di "un lavaggio da due ore".
+  // Quindi sotto soglia non si chiude subito: si aspetta, e solo se il silenzio
+  // dura piu di PAUSA_MAX il ciclo si considera finito davvero.
+  _sessioniDa(pts) {
+    const soglia = parseFloat(this._cfg.soglia) || 10;
+    const PAUSA_MAX = 12 * 60 * 1000;   // 12 minuti di calma = ciclo finito
+    const MINIMA = 60 * 1000;           // sotto un minuto e un colpo di corrente
+    const MAX_GAP_S = 2 * 3600;
+    const out = {};
+    let cur = null;
+    const chiudi = fine => {
+      if (!cur) return;
+      const durata = (cur.ultimoSopra || cur.da) - cur.da;
+      if (durata >= MINIMA) {
+        const k = this._dkey(new Date(cur.da));
+        (out[k] = out[k] || []).push({ da: cur.da, a: cur.ultimoSopra || cur.da, kwh: cur.kwh, picco: cur.picco });
+      }
+      cur = null;
+    };
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const succ = pts[i + 1];
+      const dtS = succ ? Math.min(MAX_GAP_S, (succ.t - p.t) / 1000) : 0;
+      const sopra = p.w > soglia;
+      if (sopra) {
+        if (!cur) cur = { da: p.t, kwh: 0, picco: 0 };
+        cur.ultimoSopra = succ ? succ.t : p.t;
+        cur.picco = Math.max(cur.picco, p.w);
+      } else if (cur && p.t - cur.ultimoSopra > PAUSA_MAX) {
+        chiudi();
+      }
+      // L'energia si somma comunque finche il ciclo e aperto: le pause di un
+      // lavaggio fanno parte del lavaggio.
+      if (cur && dtS > 0) cur.kwh += (p.w * dtS) / 3600 / 1000;
+    }
+    chiudi();
+    return out;
+  }
+
+  _durata(ms) {
+    const min = Math.round(ms / 60000);
+    if (min < 60) return min + " min";
+    const h = Math.floor(min / 60);
+    const r = min % 60;
+    return r ? h + "h " + r + "m" : h + "h";
+  }
+
+  _ora(ms) {
+    return new Date(ms).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // "Quanto ci ha messo la lavastoviglie" e una domanda a cui il totale del
+  // giorno non risponde. Qui ci sono gli orari veri: quando e partito, quanto
+  // e durato, quanta corrente ha preso quel ciclo.
+  _accensioniHTML(giorno, etichetta) {
+    const s = (this._sess && this._sess[giorno]) || [];
+    if (!s.length) {
+      return `<div class="mc-accgruppo">Accensioni</div>
+        <div class="mc-accvuoto">Nessuna accensione registrata ${etichetta === "Oggi" ? "oggi" : "in questo giorno"}.</div>`;
+    }
+    const totMs = s.reduce((a, x) => a + (x.a - x.da), 0);
+    const righe = s.map(x => `<div class="mc-acc">
+      <div class="mc-accora">${this._ora(x.da)}<span>&rarr;</span>${this._ora(x.a)}</div>
+      <div class="mc-accdur">${this._durata(x.a - x.da)}</div>
+      <div class="mc-acckwh">${this._fmt(x.kwh)} kWh<small>picco ${Math.round(x.picco)} W</small></div>
+    </div>`).join("");
+    return `<div class="mc-accgruppo">Accensioni · ${this._esc(etichetta)}</div>
+      <div class="mc-accsomma">${s.length === 1 ? "una accensione" : s.length + " accensioni"} · acceso ${this._durata(totMs)} in tutto</div>
+      <div class="mc-acclista">${righe}</div>`;
   }
 
   // Pacchetto icone condiviso (14 disegni curati, vedi funzioni mcIcon* sopra).
@@ -1166,6 +1244,22 @@ class MiniCard extends HTMLElement {
         border-radius:12px;border:1px solid var(--mc-stroke);font-size:12.5px;font-weight:700;color:var(--mc-ink)}
       .mc-avgrow small{display:block;color:var(--mc-muted);font-weight:600;font-size:10px;margin-top:2px}
       .mc-empty{color:var(--mc-muted);font-size:12.5px;text-align:center;padding:18px 0}
+      /* ------------------------------------------------------ accensioni */
+      .mc-accgruppo{font-size:9.5px;font-weight:850;text-transform:uppercase;letter-spacing:.09em;
+        color:var(--mc-muted);margin:20px 0 3px}
+      .mc-accsomma{font-size:12px;font-weight:700;color:var(--mc-ink);margin-bottom:9px}
+      .mc-accvuoto{font-size:12px;color:var(--mc-muted);padding:6px 0 2px}
+      .mc-acclista{display:flex;flex-direction:column;gap:6px}
+      .mc-acc{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:13px;
+        background:rgba(255,255,255,.04);border:1px solid var(--mc-stroke)}
+      .mc-accora{flex:1;min-width:0;font-size:13px;font-weight:800;color:var(--mc-ink);
+        font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:6px}
+      .mc-accora span{opacity:.45;font-weight:600}
+      .mc-accdur{flex:0 0 auto;font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:20px;
+        background:rgba(71,181,255,.16);border:1px solid rgba(71,181,255,.35);color:#bfe6ff}
+      .mc-acckwh{flex:0 0 auto;text-align:right;font-size:12.5px;font-weight:800;color:var(--mc-ink);
+        font-variant-numeric:tabular-nums}
+      .mc-acckwh small{display:block;font-size:9.5px;font-weight:700;color:var(--mc-muted);margin-top:1px}
       /* ---------------------------------------------------------- timer */
       /* Visibile da subito, senza la classe "on" da accendere a mano: il
          foglio grande usa una transizione che non avanza se la scheda non e
@@ -1902,6 +1996,7 @@ class MiniCard extends HTMLElement {
       const idx = selectedIdx == null ? bars.length - 1 : Math.min(selectedIdx, bars.length - 1);
       const selBar = bars[idx];
       const selLabel = idx === bars.length - 1 ? "Oggi" : selBar.label;
+      const selKey = this._dkey(new Date(today.getTime() - (bars.length - 1 - idx) * 86400000));
       const chartHTML = bars.map((b, i) => {
         const hp = Math.max(2, Math.round(b.v / mx * 100));
         const showLbl = days <= 7 || i % Math.ceil(days / 7) === 0;
@@ -1920,6 +2015,7 @@ class MiniCard extends HTMLElement {
           <div style="text-align:right">${this._fmt(selBar.v)} kWh<small>${this._fmtE(selBar.v)}</small></div></div>
         <div class="mc-avgrow" style="margin-top:8px;opacity:.7"><div>Media al giorno<small>stima su ${days} giorni</small></div>
           <div style="text-align:right">${this._fmt(avgDay)} kWh<small>${this._fmtE(avgDay)}/giorno</small></div></div>
+        ${this._accensioniHTML(selKey, selLabel)}
       </div>`;
       wire();
       ov.querySelectorAll(".mc-tab").forEach(el => el.onclick = () => { period = el.dataset.p; selectedIdx = null; render(); });
