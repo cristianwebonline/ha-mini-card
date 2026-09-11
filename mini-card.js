@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.32.0";
+const MC_VERSION = "1.33.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -762,13 +762,30 @@ class MiniCard extends HTMLElement {
     const now = new Date();
     const start = new Date(now.getTime() - days * 86400000);
     try {
-      const res = await this._hass.callWS({
-        type: "history/history_during_period",
+      // Prima qui si scaricavano 14 giorni di letture GREZZE per ogni card che
+      // avesse un sensore di potenza. Su questo impianto sono decine di
+      // migliaia di righe a card (i sensori scrivono ogni 15 secondi), e la
+      // home ne ha cinque: e da li che veniva l'attesa infinita.
+      // Per i kWh al giorno basta la media oraria, che il registratore ha gia
+      // pronta: media in watt per un'ora = wattora. 336 righe invece di 28.000.
+      const st = await this._hass.callWS({
+        type: "recorder/statistics_during_period",
         start_time: start.toISOString(), end_time: now.toISOString(),
-        entity_ids: [this._cfg.power], minimal_response: true, no_attributes: true,
+        statistic_ids: [this._cfg.power], period: "hour", types: ["mean"],
       });
-      const rows = (res && res[this._cfg.power]) || [];
-      this._hist = this._integratePower(rows);
+      const medie = (st && st[this._cfg.power]) || [];
+      if (medie.length) {
+        this._hist = this._giornoDaMedie(medie);
+      } else {
+        // Sensore senza statistiche: si ripiega sul grezzo, ma su due giorni.
+        const dopo = new Date(now.getTime() - Math.min(days, 2) * 86400000);
+        const res = await this._hass.callWS({
+          type: "history/history_during_period",
+          start_time: dopo.toISOString(), end_time: now.toISOString(),
+          entity_ids: [this._cfg.power], minimal_response: true, no_attributes: true,
+        });
+        this._hist = this._integratePower((res && res[this._cfg.power]) || []);
+      }
     } catch (e) {
       this._hist = null;
       console.warn("[mini-card] storico non disponibile:", e);
@@ -776,6 +793,51 @@ class MiniCard extends HTMLElement {
     this._histLoading = false;
     this._histTs = Date.now();
     this._update();
+  }
+
+  // Media oraria in watt -> kWh per giorno (un'ora di media W vale W/1000 kWh).
+  _giornoDaMedie(rows) {
+    const MAX_W = 2500;
+    const daily = {};
+    for (const r of rows) {
+      const w = parseFloat(r.mean);
+      if (!isFinite(w)) continue;
+      const k = this._dkey(new Date(r.start));
+      daily[k] = (daily[k] || 0) + Math.min(MAX_W, Math.max(0, w)) / 1000;
+    }
+    return daily;
+  }
+
+  // Le accensioni di UN giorno, chieste solo quando servono davvero: stanno
+  // dentro il foglio, e il foglio si apre di rado. Un giorno di letture grezze
+  // sono circa duemila righe invece delle ventottomila di quattordici giorni.
+  async _caricaGiorno(giorno) {
+    if (!this._hass || !this._cfg.power) return;
+    if (!this._sess) this._sess = {};
+    if (this._sess[giorno] !== undefined) return;
+    this._sess[giorno] = null;          // "sto arrivando", non "niente"
+    const [a, m, g] = giorno.split("-").map(Number);
+    const da = new Date(a, m - 1, g, 0, 0, 0, 0);
+    const al = new Date(a, m - 1, g, 23, 59, 59, 999);
+    try {
+      const res = await this._hass.callWS({
+        type: "history/history_during_period",
+        start_time: da.toISOString(), end_time: al.toISOString(),
+        entity_ids: [this._cfg.power], minimal_response: true, no_attributes: true,
+      });
+      const rows = (res && res[this._cfg.power]) || [];
+      const norm = r => r.s !== undefined
+        ? { t: r.lu * 1000, w: parseFloat(r.s) }
+        : { t: new Date(r.last_updated || r.lu).getTime(), w: parseFloat(r.state) };
+      const pts = rows.map(norm).filter(x => !isNaN(x.w) && !isNaN(x.t))
+        .map(x => ({ t: x.t, w: Math.min(2500, Math.max(0, x.w)) }))
+        .sort((x, y) => x.t - y.t);
+      const tutte = this._sessioniDa(pts);
+      this._sess[giorno] = (tutte && tutte[giorno]) || [];
+    } catch (e) {
+      this._sess[giorno] = [];
+    }
+    if (this._ridisegnaFoglio) this._ridisegnaFoglio();
   }
 
   _integratePower(rows) {
@@ -795,9 +857,9 @@ class MiniCard extends HTMLElement {
       const k = this._dkey(new Date(pts[i].t));
       daily[k] = (daily[k] || 0) + kwh;
     }
-    // Le stesse letture dicono anche QUANDO ha lavorato: si tengono, invece di
-    // buttarle dopo la somma del giorno. Nessuna richiesta in piu al server.
-    this._sess = this._sessioniDa(pts);
+    // Le stesse letture dicono anche QUANDO ha lavorato: quando siamo qui
+    // (ripiego senza statistiche) si tengono, che e gratis.
+    this._sess = Object.assign(this._sess || {}, this._sessioniDa(pts));
     return daily;
   }
 
@@ -860,7 +922,17 @@ class MiniCard extends HTMLElement {
   // giorno non risponde. Qui ci sono gli orari veri: quando e partito, quanto
   // e durato, quanta corrente ha preso quel ciclo.
   _accensioniHTML(giorno, etichetta) {
-    const s = (this._sess && this._sess[giorno]) || [];
+    const cache = this._sess || {};
+    if (cache[giorno] === undefined) {      // mai chiesto: lo chiedo adesso
+      this._caricaGiorno(giorno);
+      return `<div class="mc-accgruppo">Accensioni</div>
+        <div class="mc-accvuoto">Cerco le accensioni di questo giorno...</div>`;
+    }
+    if (cache[giorno] === null) {           // richiesta in volo
+      return `<div class="mc-accgruppo">Accensioni</div>
+        <div class="mc-accvuoto">Cerco le accensioni di questo giorno...</div>`;
+    }
+    const s = cache[giorno] || [];
     if (!s.length) {
       return `<div class="mc-accgruppo">Accensioni</div>
         <div class="mc-accvuoto">Nessuna accensione registrata ${etichetta === "Oggi" ? "oggi" : "in questo giorno"}.</div>`;
@@ -2025,6 +2097,8 @@ class MiniCard extends HTMLElement {
         ${this._accensioniHTML(selKey, selLabel)}
       </div>`;
       wire();
+      // Le accensioni arrivano dopo: quando arrivano, il foglio si ridisegna.
+      this._ridisegnaFoglio = render;
       ov.querySelectorAll(".mc-tab").forEach(el => el.onclick = () => { period = el.dataset.p; selectedIdx = null; render(); });
       ov.querySelectorAll(".mc-col").forEach(el => el.onclick = () => { selectedIdx = parseInt(el.dataset.i, 10); render(); });
     };
