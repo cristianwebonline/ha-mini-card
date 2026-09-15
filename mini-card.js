@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.34.0";
+const MC_VERSION = "1.35.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1207,13 +1207,17 @@ class MiniCard extends HTMLElement {
       .mc-card[data-icona="piccola"] .mc-sub{font-size:clamp(10.5px,6.4cqw,16px);line-height:1.3}
       .mc-card[data-icona="piccola"] .mc-state{font-size:clamp(8px,5cqw,13px)}
       .mc-card[data-icona="piccola"] .mc-metric{font-size:clamp(14px,9.5cqw,27px)}
-      .mc-card[data-icona="piccola"] .mc-badge{font-size:clamp(7px,3.6cqw,10.5px)}
+      /* Il tasto accendi/spegni: a 185px di card scendeva a 7px, piu piccolo
+         di qualunque altra scritta, e il dito lo mancava. */
+      .mc-card[data-icona="piccola"] .mc-badge{font-size:clamp(9.5px,5cqw,12.5px);
+        padding:clamp(4px,2.4cqw,7px) clamp(10px,6cqw,16px)}
       .mc-svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 7px rgba(0,0,0,.35))}
       .mc-name{font-size:11px;font-weight:800;margin-top:2px;text-align:center;line-height:1.2;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-      .mc-badge{display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;margin-top:2px;
-        font-size:8.5px;font-weight:800;letter-spacing:.2px;background:rgba(255,255,255,.06);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
-      .mc-badge .dot{width:5px;height:5px;border-radius:50%;background:#5a6572;flex:0 0 auto}
+      .mc-badge{display:flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;margin-top:3px;
+        cursor:pointer;min-height:22px;box-sizing:border-box;
+        font-size:10px;font-weight:800;letter-spacing:.2px;background:rgba(255,255,255,.06);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
+      .mc-badge .dot{width:6px;height:6px;border-radius:50%;background:#5a6572;flex:0 0 auto}
       .mc-badge[data-on="1"]{background:rgba(56,224,138,.16);border-color:rgba(56,224,138,.45);color:var(--mc-c-ok,#8ff0b4)}
       .mc-card.lavora .mc-badge[data-on="1"]{animation:mc-blink 3s ease-in-out infinite}
       .mc-badge[data-on="1"] .dot{background:#38e08a;box-shadow:0 0 5px #38e08a}
@@ -1270,9 +1274,13 @@ class MiniCard extends HTMLElement {
          icona e scritte A SCATTI: una card larga il doppio poteva ritrovarsi
          con la stessa iconcina finche non superava la soglia successiva. Ora
          le misure sono in cqw, cioe in percentuale della larghezza della card:
-         crescono e calano con continuita insieme alla tessera. */ .mc-badge{font-size:10.5px;padding:4px 12px}
-        .mc-state{font-size:12.5px} .mc-sub{font-size:13px} .mc-metric{font-size:26px}
-      }
+         crescono e calano con continuita insieme alla tessera.
+         Qui restava anche la "}" di chiusura di quelle soglie, senza nessun
+         blocco da chiudere: il browser buttava via la regola successiva
+         (.mc-glow{opacity:.12}) e le icone SPENTE avevano il bagliore pieno,
+         come se fossero accese. */
+      .mc-badge{font-size:11.5px;padding:5px 13px}
+      .mc-state{font-size:12.5px} .mc-sub{font-size:13px} .mc-metric{font-size:26px}
       .mc-glow{opacity:.12;transition:opacity .5s}
       .mc-card.on .mc-glow{opacity:.75}
       .mc-card.lavora .mc-glow{opacity:1;animation:mc-pulse 2.6s ease-in-out infinite}
