@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.33.0";
+const MC_VERSION = "1.34.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -117,12 +117,9 @@ function mcSuggestEntities(name, hass) {
   };
 }
 function mcSuggestIcon(name) {
-  const n = ` ${(name || "").toLowerCase().trim()} `;
-  if (n.trim() === "") return null;
-  for (const [icon, words] of MC_ICON_KEYWORDS) {
-    if (words.some(w => n.includes(w))) return icon;
-  }
-  return null;
+  // Stesso elenco usato per disegnare (vedi mcIconaIntelligente): prima gli
+  // oggetti, poi le stanze. MC_ICON_KEYWORDS resta per chi lo usasse ancora.
+  return mcTrovaParole(name, MC_PAROLE_OGGETTI) || mcTrovaParole(name, MC_PAROLE_STANZE);
 }
 
 // Elenca tutte le viste di tutte le dashboard (titolo + percorso vero) per il
@@ -645,6 +642,113 @@ const MC_ICON_RENDER = {
 };
 function mcIconFor(type) { return (MC_ICON_RENDER[type] || mcIconGeneric)(); }
 
+// =========================================================================
+// ICONE DI OGGETTI (1.34.0)
+// Il pacchetto era fatto di STANZE (cucina, bagno, ufficio): per un oggetto
+// preciso — una presa, la stampante 3D, la macchina del caffe — l'icona della
+// stanza non diceva niente, e in giardino ogni presa aveva il vaso. Queste
+// sono disegnate nello stesso stile (corpo scuro, ombra, luci con le stesse
+// classi animate) e passano da mcNamespaceCustomSvg: i loro gradienti hanno
+// id brevi uguali fra icone diverse e senza suffisso si ruberebbero i colori.
+// =========================================================================
+const MC_SVG_OGGETTI = {"presa": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"bi\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#fbfcfd\"/><stop offset=\"1\" stop-color=\"#d9dde3\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#8ff0b4\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#8ff0b4\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"50\" rx=\"42\" ry=\"42\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"88\" rx=\"28\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"20\" y=\"16\" width=\"60\" height=\"68\" rx=\"16\" fill=\"url(#bi)\" stroke=\"#050608\" stroke-width=\"1.5\"/><circle cx=\"50\" cy=\"50\" r=\"21\" fill=\"#eef0f3\" stroke=\"#8a94a1\" stroke-width=\"1.4\"/><rect x=\"47.5\" y=\"29\" width=\"5\" height=\"6\" rx=\"1.2\" fill=\"#8a94a1\"/><rect x=\"47.5\" y=\"65\" width=\"5\" height=\"6\" rx=\"1.2\" fill=\"#8a94a1\"/><circle cx=\"41\" cy=\"50\" r=\"3.6\" fill=\"#1b1f28\"/><circle cx=\"59\" cy=\"50\" r=\"3.6\" fill=\"#1b1f28\"/><circle class=\"mc-bolt-green\" cx=\"66\" cy=\"26\" r=\"2.6\" fill=\"#38e08a\"/></svg>", "ciabatta": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#8ff0b4\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#8ff0b4\" stop-opacity=\"0\"/></radialGradient></defs><ellipse cx=\"50\" cy=\"76\" rx=\"40\" ry=\"5\" fill=\"url(#om)\"/><rect x=\"12\" y=\"44\" width=\"76\" height=\"24\" rx=\"9\" fill=\"#e8ebef\" stroke=\"#050608\" stroke-width=\"1.4\"/><g transform=\"translate(26 56)\"><circle r=\"7\" fill=\"#1b1f28\" stroke=\"#8a94a1\" stroke-width=\"1\"/><circle cx=\"-2.4\" r=\"1.2\" fill=\"#8a94a1\"/><circle cx=\"2.4\" r=\"1.2\" fill=\"#8a94a1\"/></g><g transform=\"translate(44 56)\"><circle r=\"7\" fill=\"#1b1f28\" stroke=\"#8a94a1\" stroke-width=\"1\"/><circle cx=\"-2.4\" r=\"1.2\" fill=\"#8a94a1\"/><circle cx=\"2.4\" r=\"1.2\" fill=\"#8a94a1\"/></g><g transform=\"translate(62 56)\"><circle r=\"7\" fill=\"#1b1f28\" stroke=\"#8a94a1\" stroke-width=\"1\"/><circle cx=\"-2.4\" r=\"1.2\" fill=\"#8a94a1\"/><circle cx=\"2.4\" r=\"1.2\" fill=\"#8a94a1\"/></g><rect x=\"75\" y=\"50\" width=\"8\" height=\"12\" rx=\"3\" fill=\"#ff6a6a\" stroke=\"#050608\" stroke-width=\"1\"/><circle class=\"mc-bolt-green\" cx=\"79\" cy=\"53\" r=\"1.8\" fill=\"#8ff0b4\"/><path d=\"M12 56 q-8 0 -8 14 q0 12 10 14\" stroke=\"#3a4150\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>", "lampadina": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ffd166\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ffd166\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"40\" rx=\"38\" ry=\"38\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"88\" rx=\"16\" ry=\"4\" fill=\"url(#om)\"/><path class=\"mc-bulb2\" d=\"M50 12 Q72 12 72 36 Q72 50 60 58 V66 H40 V58 Q28 50 28 36 Q28 12 50 12 Z\" fill=\"#fff4cf\" stroke=\"#050608\" stroke-width=\"1.5\"/><path d=\"M44 48 L47 38 L50 46 L53 38 L56 48\" stroke=\"#c89a2b\" stroke-width=\"1.6\" fill=\"none\"/><rect x=\"40\" y=\"66\" width=\"20\" height=\"12\" rx=\"2\" fill=\"#8a94a1\" stroke=\"#050608\" stroke-width=\"1.2\"/><path d=\"M40 70 H60 M40 74 H60\" stroke=\"#050608\" stroke-width=\"1\"/></svg>", "led": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ffd166\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ffd166\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"56\" rx=\"46\" ry=\"26\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"80\" rx=\"40\" ry=\"5\" fill=\"url(#om)\"/><rect x=\"8\" y=\"50\" width=\"84\" height=\"14\" rx=\"7\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.4\"/><circle class=\"mc-bolt-green\" style=\"animation-delay:0.0s\" cx=\"16\" cy=\"57\" r=\"3\" fill=\"#ffd166\"/><circle class=\"mc-bolt-green\" style=\"animation-delay:0.2s\" cx=\"27\" cy=\"57\" r=\"3\" fill=\"#ffd166\"/><circle class=\"mc-bolt-green\" style=\"animation-delay:0.4s\" cx=\"38\" cy=\"57\" r=\"3\" fill=\"#ffd166\"/><circle class=\"mc-bolt-green\" style=\"animation-delay:0.6s\" cx=\"49\" cy=\"57\" r=\"3\" fill=\"#ffd166\"/><circle class=\"mc-bolt-green\" style=\"animation-delay:0.8s\" cx=\"60\" cy=\"57\" r=\"3\" fill=\"#ffd166\"/><circle class=\"mc-bolt-green\" style=\"animation-delay:1.0s\" cx=\"71\" cy=\"57\" r=\"3\" fill=\"#ffd166\"/><circle class=\"mc-bolt-green\" style=\"animation-delay:1.2s\" cx=\"82\" cy=\"57\" r=\"3\" fill=\"#ffd166\"/><path d=\"M26 40 q24 -18 48 0\" stroke=\"#8a94a1\" stroke-width=\"1.6\" fill=\"none\" stroke-dasharray=\"3 4\" opacity=\".6\"/></svg>", "luci_esterne": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ffd166\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#ffd166\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"52\" rx=\"46\" ry=\"30\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"86\" rx=\"36\" ry=\"4.5\" fill=\"url(#om)\"/><path d=\"M6 30 Q50 72 94 30\" stroke=\"#4a5261\" stroke-width=\"2.4\" fill=\"none\"/><line x1=\"14\" y1=\"34\" x2=\"14\" y2=\"39\" stroke=\"#3a4150\" stroke-width=\"2\"/><ellipse class=\"mc-bolt-green\" style=\"animation-delay:0.00s\" cx=\"14\" cy=\"44\" rx=\"4.2\" ry=\"5.5\" fill=\"#ffd166\"/><line x1=\"26\" y1=\"44\" x2=\"26\" y2=\"49\" stroke=\"#3a4150\" stroke-width=\"2\"/><ellipse class=\"mc-bolt-green\" style=\"animation-delay:0.25s\" cx=\"26\" cy=\"54\" rx=\"4.2\" ry=\"5.5\" fill=\"#ff7a7a\"/><line x1=\"38\" y1=\"50\" x2=\"38\" y2=\"55\" stroke=\"#3a4150\" stroke-width=\"2\"/><ellipse class=\"mc-bolt-green\" style=\"animation-delay:0.50s\" cx=\"38\" cy=\"60\" rx=\"4.2\" ry=\"5.5\" fill=\"#7ab8ff\"/><line x1=\"50\" y1=\"52\" x2=\"50\" y2=\"57\" stroke=\"#3a4150\" stroke-width=\"2\"/><ellipse class=\"mc-bolt-green\" style=\"animation-delay:0.75s\" cx=\"50\" cy=\"62\" rx=\"4.2\" ry=\"5.5\" fill=\"#8ff0b4\"/><line x1=\"62\" y1=\"50\" x2=\"62\" y2=\"55\" stroke=\"#3a4150\" stroke-width=\"2\"/><ellipse class=\"mc-bolt-green\" style=\"animation-delay:1.00s\" cx=\"62\" cy=\"60\" rx=\"4.2\" ry=\"5.5\" fill=\"#ffd166\"/><line x1=\"74\" y1=\"44\" x2=\"74\" y2=\"49\" stroke=\"#3a4150\" stroke-width=\"2\"/><ellipse class=\"mc-bolt-green\" style=\"animation-delay:1.25s\" cx=\"74\" cy=\"54\" rx=\"4.2\" ry=\"5.5\" fill=\"#e7a1ff\"/><line x1=\"86\" y1=\"34\" x2=\"86\" y2=\"39\" stroke=\"#3a4150\" stroke-width=\"2\"/><ellipse class=\"mc-bolt-green\" style=\"animation-delay:1.50s\" cx=\"86\" cy=\"44\" rx=\"4.2\" ry=\"5.5\" fill=\"#ff7a7a\"/><rect x=\"10\" y=\"74\" width=\"80\" height=\"6\" rx=\"3\" fill=\"#2a3040\" stroke=\"#050608\" stroke-width=\"1\"/></svg>", "stampante3d": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#39c6ff\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#39c6ff\" stop-opacity=\"0\"/></radialGradient></defs><ellipse cx=\"50\" cy=\"88\" rx=\"36\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"16\" y=\"14\" width=\"68\" height=\"72\" rx=\"6\" fill=\"none\" stroke=\"#4a5261\" stroke-width=\"4\"/><rect x=\"16\" y=\"76\" width=\"68\" height=\"10\" rx=\"3\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.2\"/><rect x=\"30\" y=\"64\" width=\"40\" height=\"6\" rx=\"1.5\" fill=\"#6b7482\"/><path d=\"M42 64 L46 52 H54 L58 64 Z\" fill=\"#ffb020\" opacity=\".9\"/><rect x=\"18\" y=\"30\" width=\"64\" height=\"5\" rx=\"2\" fill=\"#8a94a1\"/><g class=\"mc-corpo3d\"><rect x=\"44\" y=\"34\" width=\"12\" height=\"10\" rx=\"2\" fill=\"#2a3040\" stroke=\"#050608\" stroke-width=\"1\"/><path d=\"M50 44 V50\" stroke=\"#ff6a3d\" stroke-width=\"2\"/><circle class=\"mc-bolt-green\" cx=\"50\" cy=\"51\" r=\"1.8\" fill=\"#ff6a3d\"/></g><rect class=\"mc-screen\" x=\"66\" y=\"78\" width=\"12\" height=\"6\" rx=\"1\" fill=\"#39c6ff\"/></svg>", "caffe": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ffb020\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ffb020\" stop-opacity=\"0\"/></radialGradient></defs><ellipse cx=\"50\" cy=\"88\" rx=\"30\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"24\" y=\"12\" width=\"52\" height=\"16\" rx=\"5\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.4\"/><rect x=\"24\" y=\"26\" width=\"14\" height=\"58\" rx=\"3\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.4\"/><rect x=\"24\" y=\"78\" width=\"52\" height=\"8\" rx=\"3\" fill=\"#3a4150\" stroke=\"#050608\" stroke-width=\"1.2\"/><rect x=\"48\" y=\"28\" width=\"12\" height=\"7\" rx=\"2\" fill=\"#6b7482\"/><path d=\"M46 56 H62 V70 Q62 76 54 76 Q46 76 46 70 Z\" fill=\"#f6f7f9\" stroke=\"#050608\" stroke-width=\"1.2\"/><path d=\"M62 60 q6 0 6 5 q0 5 -6 5\" stroke=\"#f6f7f9\" stroke-width=\"2.4\" fill=\"none\"/><g class=\"mc-steam\" stroke=\"#c89a6a\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"><path d=\"M51 52 q-3 -5 0 -10\"/><path d=\"M57 52 q-3 -5 0 -10\"/></g><circle class=\"mc-bolt-green\" cx=\"68\" cy=\"20\" r=\"2\" fill=\"#8ff0b4\"/></svg>", "echo": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#39c6ff\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#39c6ff\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"46\" rx=\"42\" ry=\"26\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"80\" rx=\"31\" ry=\"5\" fill=\"url(#om)\"/><path d=\"M18 46 V62 Q18 75 50 75 Q82 75 82 62 V46\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><ellipse cx=\"50\" cy=\"46\" rx=\"32\" ry=\"12\" fill=\"#5b6472\" stroke=\"#050608\" stroke-width=\"1.5\"/><ellipse class=\"mc-glow\" cx=\"50\" cy=\"46\" rx=\"29\" ry=\"10\" fill=\"none\" stroke=\"#39c6ff\" stroke-width=\"3\"/><g fill=\"#2a3040\"><circle cx=\"39\" cy=\"46\" r=\"1.7\"/><circle cx=\"50\" cy=\"42.5\" r=\"1.7\"/><circle cx=\"61\" cy=\"46\" r=\"1.7\"/><circle cx=\"50\" cy=\"49.5\" r=\"1.7\"/></g></svg>", "cassa": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ffb020\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ffb020\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"50\" rx=\"40\" ry=\"40\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"88\" rx=\"24\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"27\" y=\"14\" width=\"46\" height=\"70\" rx=\"10\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><circle cx=\"50\" cy=\"34\" r=\"9\" fill=\"#1b1f28\" stroke=\"#8a94a1\" stroke-width=\"1.3\"/><circle cx=\"50\" cy=\"34\" r=\"3.5\" fill=\"#3a4150\"/><circle cx=\"50\" cy=\"62\" r=\"13\" fill=\"#1b1f28\" stroke=\"#8a94a1\" stroke-width=\"1.3\"/><circle cx=\"50\" cy=\"62\" r=\"5.5\" fill=\"#3a4150\"/><circle class=\"mc-bolt-green\" cx=\"65\" cy=\"21\" r=\"2.2\" fill=\"#8ff0b4\"/></svg>", "bt": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#5aa9ff\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#5aa9ff\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"52\" rx=\"42\" ry=\"34\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"84\" rx=\"30\" ry=\"5\" fill=\"url(#om)\"/><rect x=\"16\" y=\"34\" width=\"68\" height=\"44\" rx=\"22\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><g fill=\"#1b1f28\"><circle cx=\"30\" cy=\"48\" r=\"1.6\"/><circle cx=\"30\" cy=\"56\" r=\"1.6\"/><circle cx=\"30\" cy=\"64\" r=\"1.6\"/><circle cx=\"38\" cy=\"48\" r=\"1.6\"/><circle cx=\"38\" cy=\"56\" r=\"1.6\"/><circle cx=\"38\" cy=\"64\" r=\"1.6\"/><circle cx=\"46\" cy=\"48\" r=\"1.6\"/><circle cx=\"46\" cy=\"56\" r=\"1.6\"/><circle cx=\"46\" cy=\"64\" r=\"1.6\"/><circle cx=\"54\" cy=\"48\" r=\"1.6\"/><circle cx=\"54\" cy=\"56\" r=\"1.6\"/><circle cx=\"54\" cy=\"64\" r=\"1.6\"/><circle cx=\"62\" cy=\"48\" r=\"1.6\"/><circle cx=\"62\" cy=\"56\" r=\"1.6\"/><circle cx=\"62\" cy=\"64\" r=\"1.6\"/><circle cx=\"70\" cy=\"48\" r=\"1.6\"/><circle cx=\"70\" cy=\"56\" r=\"1.6\"/><circle cx=\"70\" cy=\"64\" r=\"1.6\"/></g><path class=\"mc-glow\" d=\"M46 12 L56 20 L46 28 V4 L56 12 L46 20\" fill=\"none\" stroke=\"#5aa9ff\" stroke-width=\"2.6\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/></svg>", "gamepad": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#5aa9ff\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#5aa9ff\" stop-opacity=\"0\"/></radialGradient></defs><ellipse cx=\"50\" cy=\"82\" rx=\"34\" ry=\"5\" fill=\"url(#om)\"/><path d=\"M30 32 H70 Q86 32 89 52 Q92 72 80 74 Q72 75 66 64 H34 Q28 75 20 74 Q8 72 11 52 Q14 32 30 32 Z\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.6\"/><rect class=\"mc-glow\" x=\"40\" y=\"35\" width=\"20\" height=\"3\" rx=\"1.5\" fill=\"#5aa9ff\"/><path d=\"M25 47 v12 M19 53 h12\" stroke=\"#8a94a1\" stroke-width=\"3.2\" stroke-linecap=\"round\"/><g stroke-width=\"1.6\" fill=\"none\"><circle cx=\"73\" cy=\"46\" r=\"3\" stroke=\"#6fd3a3\"/><circle cx=\"80\" cy=\"53\" r=\"3\" stroke=\"#ff7a7a\"/><circle cx=\"66\" cy=\"53\" r=\"3\" stroke=\"#e7a1ff\"/><circle cx=\"73\" cy=\"60\" r=\"3\" stroke=\"#7ab8ff\"/></g><circle cx=\"40\" cy=\"61\" r=\"5\" fill=\"#1b1f28\" stroke=\"#8a94a1\" stroke-width=\"1\"/><circle cx=\"60\" cy=\"61\" r=\"5\" fill=\"#1b1f28\" stroke=\"#8a94a1\" stroke-width=\"1\"/></svg>", "tablet": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><linearGradient id=\"sc\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#2c6fb0\"/><stop offset=\"1\" stop-color=\"#153a63\"/></linearGradient></defs><ellipse cx=\"50\" cy=\"86\" rx=\"30\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"20\" y=\"12\" width=\"60\" height=\"72\" rx=\"8\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><rect class=\"mc-screen\" x=\"25\" y=\"18\" width=\"50\" height=\"58\" rx=\"3\" fill=\"url(#sc)\"/><path class=\"mc-bolt\" d=\"M53 34 L42 50 H50 L46 62 L58 45 H50 Z\" fill=\"#ffd166\"/><circle cx=\"50\" cy=\"80\" r=\"1.6\" fill=\"#8a94a1\"/></svg>", "orologio": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><linearGradient id=\"sc\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1e3350\"/><stop offset=\"1\" stop-color=\"#0d1624\"/></linearGradient></defs><ellipse cx=\"50\" cy=\"86\" rx=\"28\" ry=\"4.5\" fill=\"url(#om)\"/><ellipse cx=\"50\" cy=\"76\" rx=\"26\" ry=\"8\" fill=\"#3a4150\" stroke=\"#050608\" stroke-width=\"1.2\"/><rect x=\"40\" y=\"8\" width=\"20\" height=\"14\" rx=\"4\" fill=\"#3a4150\"/><rect x=\"40\" y=\"60\" width=\"20\" height=\"12\" rx=\"4\" fill=\"#3a4150\"/><rect x=\"30\" y=\"20\" width=\"40\" height=\"44\" rx=\"12\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><rect class=\"mc-screen\" x=\"35\" y=\"25\" width=\"30\" height=\"34\" rx=\"8\" fill=\"url(#sc)\"/><path d=\"M50 32 V42 L56 46\" stroke=\"#8ff0b4\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><rect x=\"70\" y=\"36\" width=\"4\" height=\"10\" rx=\"2\" fill=\"#6b7482\"/></svg>", "caricatore": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ffb020\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ffb020\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"50\" rx=\"40\" ry=\"36\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"84\" rx=\"32\" ry=\"5\" fill=\"url(#om)\"/><rect x=\"18\" y=\"44\" width=\"64\" height=\"34\" rx=\"7\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><g stroke=\"#050608\" stroke-width=\"1.3\"><rect x=\"30\" y=\"18\" width=\"14\" height=\"36\" rx=\"3\" fill=\"#6b7482\"/><rect x=\"56\" y=\"18\" width=\"14\" height=\"36\" rx=\"3\" fill=\"#6b7482\"/><rect x=\"34\" y=\"14\" width=\"6\" height=\"5\" rx=\"1.5\" fill=\"#8a94a1\"/><rect x=\"60\" y=\"14\" width=\"6\" height=\"5\" rx=\"1.5\" fill=\"#8a94a1\"/></g><path class=\"mc-bolt\" d=\"M52 58 L45 68 H51 L47 76 L56 65 H50 Z\" fill=\"#ffb020\"/></svg>", "usb": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#8ff0b4\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#8ff0b4\" stop-opacity=\"0\"/></radialGradient></defs><ellipse cx=\"50\" cy=\"80\" rx=\"34\" ry=\"5\" fill=\"url(#om)\"/><rect x=\"14\" y=\"36\" width=\"72\" height=\"36\" rx=\"9\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><g fill=\"#101319\" stroke=\"#8a94a1\" stroke-width=\"1\"><rect x=\"24\" y=\"48\" width=\"14\" height=\"8\" rx=\"1.5\"/><rect x=\"43\" y=\"48\" width=\"14\" height=\"8\" rx=\"1.5\"/><rect x=\"62\" y=\"48\" width=\"14\" height=\"8\" rx=\"1.5\"/></g><g fill=\"#8a94a1\"><rect x=\"26.5\" y=\"50\" width=\"9\" height=\"2.5\"/><rect x=\"45.5\" y=\"50\" width=\"9\" height=\"2.5\"/><rect x=\"64.5\" y=\"50\" width=\"9\" height=\"2.5\"/></g><circle class=\"mc-bolt-green\" cx=\"78\" cy=\"42\" r=\"2.2\" fill=\"#8ff0b4\"/><path d=\"M50 14 V30 M50 14 l-4 5 M50 14 l4 5 M44 24 l6 4 l6 -6\" stroke=\"#8a94a1\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>", "broadlink": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ff6a6a\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ff6a6a\" stop-opacity=\"0\"/></radialGradient></defs><ellipse cx=\"50\" cy=\"84\" rx=\"22\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"34\" y=\"36\" width=\"32\" height=\"46\" rx=\"13\" fill=\"#e8ebef\" stroke=\"#050608\" stroke-width=\"1.5\"/><ellipse cx=\"50\" cy=\"38\" rx=\"16\" ry=\"6\" fill=\"#f6f7f9\" stroke=\"#050608\" stroke-width=\"1.2\"/><circle class=\"mc-bolt-green\" cx=\"50\" cy=\"56\" r=\"3\" fill=\"#39c6ff\"/><g class=\"mc-glow\" stroke=\"#ff6a6a\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"><path d=\"M38 26 q12 -10 24 0\"/><path d=\"M32 18 q18 -15 36 0\"/></g></svg>", "scaldaletto": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><linearGradient id=\"cop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#6b4d8a\"/><stop offset=\"1\" stop-color=\"#3b2a52\"/></linearGradient></defs><ellipse cx=\"50\" cy=\"84\" rx=\"38\" ry=\"5\" fill=\"url(#om)\"/><rect x=\"10\" y=\"52\" width=\"80\" height=\"26\" rx=\"6\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><rect x=\"14\" y=\"38\" width=\"22\" height=\"16\" rx=\"6\" fill=\"#d9dde3\" stroke=\"#050608\" stroke-width=\"1.2\"/><path d=\"M34 44 H86 Q90 44 90 50 V62 H34 Z\" fill=\"url(#cop)\" stroke=\"#050608\" stroke-width=\"1.4\"/><path class=\"mc-heat\" d=\"M40 53 l5 -5 l5 5 l5 -5 l5 5 l5 -5 l5 5 l5 -5 l5 5\" stroke=\"#ff6a3d\" stroke-width=\"2.2\" fill=\"none\" stroke-linejoin=\"round\"/><g class=\"mc-steam\" stroke=\"#ffb020\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"><path d=\"M52 34 q-4 -6 0 -12\"/><path d=\"M64 34 q-4 -6 0 -12\"/></g></svg>", "stufetta": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ff6a3d\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ff6a3d\" stop-opacity=\"0\"/></radialGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"48\" rx=\"42\" ry=\"36\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"86\" rx=\"30\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"22\" y=\"24\" width=\"56\" height=\"56\" rx=\"10\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.5\"/><g stroke=\"#8a94a1\" stroke-width=\"1.2\" opacity=\".7\"><line x1=\"30\" y1=\"34\" x2=\"70\" y2=\"34\"/><line x1=\"30\" y1=\"40\" x2=\"70\" y2=\"40\"/><line x1=\"30\" y1=\"46\" x2=\"70\" y2=\"46\"/><line x1=\"30\" y1=\"52\" x2=\"70\" y2=\"52\"/><line x1=\"30\" y1=\"58\" x2=\"70\" y2=\"58\"/><line x1=\"30\" y1=\"64\" x2=\"70\" y2=\"64\"/></g><path class=\"mc-heat\" d=\"M30 70 l5 -4 l5 4 l5 -4 l5 4 l5 -4 l5 4 l5 -4 l5 4\" stroke=\"#ff6a3d\" stroke-width=\"2.2\" fill=\"none\"/><g class=\"mc-steam\" stroke=\"#ffb020\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"><path d=\"M38 20 q-4 -6 0 -12\"/><path d=\"M50 20 q-4 -6 0 -12\"/><path d=\"M62 20 q-4 -6 0 -12\"/></g><circle cx=\"72\" cy=\"30\" r=\"2\" fill=\"#ffb020\"/></svg>", "telecamera": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#ff5c5c\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#ff5c5c\" stop-opacity=\"0\"/></radialGradient></defs><ellipse cx=\"50\" cy=\"86\" rx=\"24\" ry=\"4.5\" fill=\"url(#om)\"/><path d=\"M44 62 L40 82 H60 L56 62\" fill=\"#3a4150\" stroke=\"#050608\" stroke-width=\"1.2\"/><circle cx=\"50\" cy=\"40\" r=\"26\" fill=\"#e8ebef\" stroke=\"#050608\" stroke-width=\"1.5\"/><circle cx=\"50\" cy=\"40\" r=\"15\" fill=\"#1b1f28\" stroke=\"#4a5261\" stroke-width=\"2\"/><circle cx=\"50\" cy=\"40\" r=\"7\" fill=\"#2c6fb0\"/><circle cx=\"47\" cy=\"37\" r=\"2.2\" fill=\"#cfe6ff\"/><circle class=\"mc-bolt-green\" cx=\"50\" cy=\"20\" r=\"2.2\" fill=\"#ff5c5c\"/></svg>", "irrigatore": "<svg viewBox=\"0 0 100 100\" class=\"mc-svg\" xmlns=\"http://www.w3.org/2000/svg\"><defs><radialGradient id=\"om\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\".4\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"al\" cx=\"50%\" cy=\"50%\" r=\"55%\"><stop offset=\"0\" stop-color=\"#5aa9ff\" stop-opacity=\".45\"/><stop offset=\"1\" stop-color=\"#5aa9ff\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"co\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4a5261\"/><stop offset=\"1\" stop-color=\"#232833\"/></linearGradient></defs><ellipse class=\"mc-glow\" cx=\"50\" cy=\"60\" rx=\"40\" ry=\"30\" fill=\"url(#al)\"/><ellipse cx=\"50\" cy=\"88\" rx=\"34\" ry=\"4.5\" fill=\"url(#om)\"/><rect x=\"10\" y=\"30\" width=\"34\" height=\"12\" rx=\"4\" fill=\"url(#co)\" stroke=\"#050608\" stroke-width=\"1.3\"/><rect x=\"40\" y=\"22\" width=\"30\" height=\"30\" rx=\"9\" fill=\"#3b8cf6\" stroke=\"#050608\" stroke-width=\"1.4\"/><rect x=\"46\" y=\"28\" width=\"18\" height=\"10\" rx=\"2\" fill=\"#0d1624\"/><circle class=\"mc-bolt-green\" cx=\"55\" cy=\"45\" r=\"2.4\" fill=\"#8ff0b4\"/><path d=\"M62 52 V60 Q62 64 58 64 H52\" stroke=\"#4a5261\" stroke-width=\"6\" fill=\"none\" stroke-linecap=\"round\"/><g fill=\"#5aa9ff\"><path class=\"mc-water\" d=\"M50 70 q-3 5 0 8 q3 -3 0 -8Z\"/><path class=\"mc-water\" style=\"animation-delay:.3s\" d=\"M44 74 q-3 5 0 8 q3 -3 0 -8Z\"/><path class=\"mc-water\" style=\"animation-delay:.6s\" d=\"M56 76 q-3 5 0 8 q3 -3 0 -8Z\"/></g><path d=\"M20 84 q6 -10 12 0 M68 84 q6 -12 12 0\" stroke=\"#4caf50\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/></svg>"};
+Object.keys(MC_SVG_OGGETTI).forEach(k => { MC_ICON_RENDER[k] = () => mcNamespaceCustomSvg(MC_SVG_OGGETTI[k]); });
+Object.assign(MC_ICON_LABELS, {
+  presa: "Presa", ciabatta: "Ciabatta", lampadina: "Luce", led: "Striscia LED", luci_esterne: "Luci esterne",
+  stampante3d: "Stampante 3D", caffe: "Caffè", echo: "Alexa", cassa: "Cassa", bt: "Cassa Bluetooth",
+  gamepad: "Console", tablet: "Tablet", orologio: "Orologio", caricatore: "Caricatore", usb: "USB",
+  broadlink: "Broadlink", scaldaletto: "Scaldaletto", stufetta: "Stufetta", telecamera: "Telecamera", irrigatore: "Irrigatore",
+});
+
+// L'ICONA SI SCEGLIE DAL NOME, OGNI VOLTA CHE SI DISEGNA (non solo mentre si
+// scrive nell'editor). Vince l'oggetto piu preciso: "Presa caffe" e la
+// macchina del caffe, "Presa TV" e la TV, "Presa bagno" e una presa. Per
+// questo presa e ciabatta stanno in fondo: sono il nome generico di quasi
+// tutto. Una parola con * vale anche come inizio ("lampad*" prende lampada e
+// lampadina); le altre devono essere parole intere ("tv" non deve scattare
+// dentro "tavolo").
+const MC_PAROLE_OGGETTI = [
+  ["luci_esterne", ["luci esterne", "luci natale", "luci di natale", "luminarie", "albero di natale", "ghirland*"]],
+  ["led", ["led", "striscia*", "strip"]],
+  ["lampadina", ["luce", "luci", "lampad*", "faretto", "faretti", "plafoniera", "applique", "abat jour", "abatjour", "lume"]],
+  ["scaldaletto", ["scaldaletto", "scalda letto", "scalda coperta", "termocoperta", "coperta"]],
+  ["stufetta", ["stufetta", "termoventilatore", "termoconvettore", "radiatore", "calorifero", "scaldino", "termosifone"]],
+  ["climate", ["clima", "condizionatore", "climatizzatore", "split", "termostato", "stufa", "pellet", "pompa di calore", "caldaia", "temperatura", "umidita", "termometro"]],
+  ["oven", ["forno", "microonde", "induzione", "piano cottura", "fornelli", "friggitrice"]],
+  ["fridge", ["frigo*", "congelatore", "freezer", "cantinetta"]],
+  ["washer", ["lavatrice"]],
+  ["dryer", ["asciugatrice"]],
+  ["dishwasher", ["lavastoviglie", "lavapiatti"]],
+  ["caffe", ["caffe", "espresso", "moka", "nespresso"]],
+  ["stampante3d", ["stampante*", "3d", "plotter"]],
+  ["telecamera", ["telecamer*", "videocamer*", "webcam", "ipcam"]],
+  ["echo", ["alexa", "echo", "google home", "smart speaker"]],
+  ["bt", ["bluetooth"]],
+  ["cassa", ["cassa", "casse", "bose", "soundbar", "altoparlant*", "speaker", "stereo", "amplificatore", "hifi", "subwoofer"]],
+  ["gamepad", ["playstation", "play station", "ps4", "ps5", "xbox", "console", "nintendo"]],
+  ["tv", ["tv", "televisore", "televisione", "decoder", "digitale terrestre", "fire tv", "firestick", "chromecast", "sky", "proiettore"]],
+  ["tablet", ["tablet", "ipad"]],
+  ["orologio", ["orologio", "smartwatch", "watch"]],
+  ["caricatore", ["carica*", "caricabatter*", "batterie"]],
+  ["usb", ["usb"]],
+  ["broadlink", ["broadlink", "infrarossi", "ir blaster"]],
+  ["router", ["router", "modem", "wifi", "wi fi", "deco", "nas", "access point"]],
+  ["vacuum", ["aspirapolvere", "robot", "roomba"]],
+  ["fan", ["ventilatore", "ventola"]],
+  ["gate", ["cancello", "cancelletto", "portone", "basculante"]],
+  ["alarm", ["allarme", "sirena"]],
+  ["security", ["sicurezza", "serratura", "porta blindata", "movimento"]],
+  ["irrigatore", ["irrigator*", "irrigazione", "annaffi*", "sprinkler"]],
+  ["ciabatta", ["ciabatta", "multipresa"]],
+  ["presa", ["presa", "prese", "spina", "plug", "socket"]],
+];
+// Le stanze servono solo quando dal nome non esce nessun oggetto (una card
+// che dice "Bagno" e basta) e per le card Stanza.
+const MC_PAROLE_STANZE = [
+  ["kitchen", ["cucina"]], ["bathroom", ["bagno", "doccia", "vasca", "boiler", "scaldabagno"]],
+  ["office", ["ufficio", "studio", "scrivania"]], ["garden", ["giardino", "esterno", "balcone", "terrazzo", "orto", "piscina", "gazebo"]],
+  ["livingroom", ["soggiorno", "salotto", "sala", "divano"]], ["bedroom", ["camera", "letto", "comodino", "armadio", "como"]],
+];
+function mcNormalizza(s) {
+  return " " + String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, " ").trim() + " ";
+}
+function mcTrovaParole(testo, elenco) {
+  const t = mcNormalizza(testo);
+  if (!t.trim()) return null;
+  for (const [tipo, parole] of elenco) {
+    for (const p of parole) {
+      const w = mcNormalizza(p.replace("*", "")).trim();
+      if (p.endsWith("*") ? t.includes(" " + w) : t.includes(" " + w + " ")) return tipo;
+    }
+  }
+  return null;
+}
+// Dal nome della card; se il nome non dice niente, dall'entita comandata (il
+// suo id e il suo nome in Home Assistant: "Non disturbare" non dice che e
+// un'Alexa, "switch.echo_show_camera_..." si); poi dal tipo di entita: una
+// luce, una valvola, una presa che Home Assistant dichiara "outlet".
+function mcIconaIntelligente(cfg, hass) {
+  const n = mcTrovaParole(cfg.name, MC_PAROLE_OGGETTI);
+  if (n) return n;
+  const id = String(cfg.switch || "");
+  const st = hass && id && hass.states ? hass.states[id] : null;
+  const altro = id.replace(/^[a-z_]+\./, "").replace(/_/g, " ") + " " + ((st && st.attributes && st.attributes.friendly_name) || "");
+  const e = mcTrovaParole(altro, MC_PAROLE_OGGETTI);
+  if (e) return e;
+  const dom = id.split(".")[0];
+  const dc = st && st.attributes ? st.attributes.device_class : "";
+  if (dom === "light") return "lampadina";
+  if (dom === "valve") return "irrigatore";
+  if (dom === "vacuum") return "vacuum";
+  if (dom === "climate" || cfg.climate) return "climate";
+  if (dom === "camera") return "telecamera";
+  if (dom === "lock") return "security";
+  if (dom === "media_player") return dc === "tv" ? "tv" : "echo";
+  if (dc === "outlet") return "presa";
+  return null;
+}
+
 // Segnaposto per il pulsante "Personalizzata" nella griglia dell'editor —
 // non è un'icona del pacchetto, solo un simbolo (tavolozza) che apre il
 // campo per incollare l'SVG creato col Creatore Icone.
@@ -954,7 +1058,16 @@ class MiniCard extends HTMLElement {
   _icon() {
     const custom = (this._cfg.custom_icon_svg || "").trim();
     if (custom) return mcNamespaceCustomSvg(custom);
-    return mcIconFor(this._cfg.icon_type);
+    return mcIconFor(this._tipoIcona());
+  }
+
+  // L'icona che si vede: scelta a mano (icon_manuale, o card Stanza) oppure
+  // quella che dice il nome. icon_type resta il ripiego quando il nome non
+  // dice niente.
+  _tipoIcona() {
+    const c = this._cfg;
+    if (c.mode === "room" || c.icon_manuale) return c.icon_type;
+    return mcIconaIntelligente(c, this._hass) || c.icon_type;
   }
 
   _build() {
@@ -1375,7 +1488,7 @@ class MiniCard extends HTMLElement {
       @media(prefers-reduced-motion:reduce){.mc *{animation:none!important}}
     </style>
     <div class="mc">
-      <div class="mc-card" data-icon="${this._esc(this._cfg.icon_type)}" data-mode="${this._esc(this._cfg.mode || "device")}" data-icona="${this._esc(this._modoIcona())}" data-role="tap">
+      <div class="mc-card" data-icon="${this._esc(this._tipoIcona())}" data-mode="${this._esc(this._cfg.mode || "device")}" data-icona="${this._esc(this._modoIcona())}" data-role="tap">
         <button class="mc-info" data-role="info" title="Informazioni e impostazioni" hidden>⚙</button>
         <button class="mc-timer" data-role="timer" title="Timer di accensione e spegnimento" hidden>
           <ha-icon icon="mdi:timer-outline"></ha-icon></button>
@@ -2007,7 +2120,7 @@ class MiniCard extends HTMLElement {
         mercury.setAttribute("height", hgt.toFixed(1));
         mercury.setAttribute("y", (bottom - hgt).toFixed(1));
       }
-      if (cfg.icon_type === "climate" && mercury && bulb) {
+      if (this._tipoIcona() === "climate" && mercury && bulb) {
         const freddo = parseFloat(cfg.soglia_freddo), caldo = parseFloat(cfg.soglia_caldo);
         let cls = "Comfy";
         if (!isNaN(freddo) && t < freddo) cls = "Cold";
@@ -2049,7 +2162,7 @@ class MiniCard extends HTMLElement {
         <div class="mc-sheet-handle"></div>
         <button class="mc-x mc-x-abs" data-act="close">✕</button>
         <div class="mc-hero">
-          <div class="${heroIconCls}" data-icon="${this._esc(cfg.icon_type)}">${this._icon()}</div>
+          <div class="${heroIconCls}" data-icon="${this._esc(this._tipoIcona())}">${this._icon()}</div>
           <div class="mc-hero-name">${this._esc(cfg.name)}</div>
           <div class="mc-hero-state${on ? " on" : ""}">${this._stateText(on)}</div>
         </div>
@@ -2392,8 +2505,18 @@ class MiniCardEditor extends HTMLElement {
         <span class="mc-iconbtn-wrap">${MC_CUSTOM_BADGE_SVG}</span>
         <span class="mc-iconbtn-lbl">Nuova</span>
       </button>`;
-    return `<div class="mc-icongrid" id="f_icongrid">${miei}${customBtn}${types.map(t => `
-      <button type="button" class="mc-iconbtn${!hasCustom && t === sel ? " sel" : ""}" data-icon="${t}" title="${MC_ICON_LABELS[t]}">
+    // Automatica: l'icona la sceglie il nome (e si vede quale). Resta cosi
+    // finche non se ne tocca una a mano.
+    const c = this._config || {};
+    const auto = !hasCustom && !c.icon_manuale;
+    const autoTipo = mcIconaIntelligente(c, this._hass) || c.icon_type || "generic";
+    const autoBtn = `
+      <button type="button" class="mc-iconbtn${auto ? " sel" : ""}" data-icon="auto" title="La sceglie il nome">
+        <span class="mc-iconbtn-wrap">${mcIconFor(autoTipo)}</span>
+        <span class="mc-iconbtn-lbl">Automatica</span>
+      </button>`;
+    return `<div class="mc-icongrid" id="f_icongrid">${autoBtn}${miei}${customBtn}${types.map(t => `
+      <button type="button" class="mc-iconbtn${!auto && !hasCustom && t === sel ? " sel" : ""}" data-icon="${t}" title="${MC_ICON_LABELS[t]}">
         <span class="mc-iconbtn-wrap">${mcIconFor(t)}</span>
         <span class="mc-iconbtn-lbl">${MC_ICON_LABELS[t]}</span>
       </button>`).join("")}</div>`;
@@ -2426,10 +2549,15 @@ class MiniCardEditor extends HTMLElement {
         // altrimenti una card senza SVG mostrerebbe un tipo "custom" vuoto.
         const svg = this.querySelector("#f_customsvg");
         if (svg && svg.value.trim()) this._set("custom_icon_svg", svg.value);
+      } else if (btn.dataset.icon === "auto") {
+        if (customWrap()) customWrap().hidden = true;
+        this._iconManuallySet = false;
+        this._config = Object.assign({}, this._config, { custom_icon_svg: "", custom_icon_id: "", icon_manuale: false });
+        this._emit();
       } else {
         if (customWrap()) customWrap().hidden = true;
         this._config = Object.assign({}, this._config,
-          { custom_icon_svg: "", custom_icon_id: "", icon_type: btn.dataset.icon });
+          { custom_icon_svg: "", custom_icon_id: "", icon_type: btn.dataset.icon, icon_manuale: true });
         if (climateRow()) climateRow().hidden = btn.dataset.icon !== "climate";
         this._emit();
       }
@@ -2650,7 +2778,8 @@ class MiniCardEditor extends HTMLElement {
         if (s.power && !this._powerManuallySet && !this._config.power) updates.power = s.power;
       }
       this._config = Object.assign({}, this._config, updates);
-      if (updates.icon_type) this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b.dataset.icon === updates.icon_type));
+      if (!this._config.icon_manuale && !(this._config.custom_icon_svg || "").trim()) this._ridisegnaIcone();
+      else if (updates.icon_type) this.querySelectorAll(".mc-iconbtn").forEach(b => b.classList.toggle("sel", b.dataset.icon === updates.icon_type));
       if (updates.switch) {
         const p = this.querySelector('.mc-picker[data-field="switch"]');
         if (p) { p.querySelector(".mc-search").value = this._entityName(updates.switch); p.querySelector(".mc-clear").hidden = false; }
