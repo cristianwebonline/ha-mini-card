@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.39.0";
+const MC_VERSION = "1.40.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -61,7 +61,8 @@ const MC_FREDDO = {
 
 const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "", custom_icon_id: "", icona: "auto",
-  power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
+  power: "",
+  riferimento: "",          // kWh all'anno di targa (frigo/congelatore) energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
   taglia: "normale",
   // Di serie chiede conferma prima di accendere o spegnere: il tocco sulla
@@ -1197,7 +1198,14 @@ class MiniCard extends HTMLElement {
     const sett = pieni.slice(-7);
     const mediaSett = sett.reduce((a, x) => a + x.k, 0) / sett.length;
     const anno = mediaSett * 365;
-    const rif = MC_FREDDO[this._tipoApparecchio()] || MC_FREDDO.frigo;
+    // Il valore di targa dell'apparecchio VERO, se e stato scritto nella
+    // scheda, vince sul valore generico della classe: il frigo di casa e un
+    // Haier HFR5720EWMG da 477 litri, 302 kWh all'anno dichiarati.
+    const base = MC_FREDDO[this._tipoApparecchio()] || MC_FREDDO.frigo;
+    const targa = parseFloat(this._cfg.riferimento);
+    const rif = targa > 0
+      ? { atteso: targa, alto: Math.round(targa * 1.5), nome: "la sua targa", scala: targa + " kWh all'anno dichiarati dal costruttore" }
+      : base;
     // Il compressore: dalle accensioni del giorno piu completo che ho.
     let acceso = null, partenze = null;
     const cicli = (this._sess || {})[ieri.g];
@@ -3153,6 +3161,8 @@ class MiniCardEditor extends HTMLElement {
             <option value="quadrata"${c.taglia === "quadrata" ? " selected" : ""}>Quadrata</option>
           </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
+        <div class="fld"><label>Consumo di targa (kWh all'anno)</label>
+          <input type="number" min="0" max="2000" id="f_rif" placeholder="solo frigo e congelatore" value="${c.riferimento || ""}"></div>
       </div>
       <div class="fld"><label>Timer</label>
         <label class="ck"><input type="checkbox" id="f_timer"${c.mostra_timer ? " checked" : ""}> Metti l'orologio sulla card</label>
@@ -3231,6 +3241,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_taglia", "change", e => this._set("taglia", e.target.value));
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
+    on("#f_rif", "change", e => this._set("riferimento", parseInt(e.target.value) || ""));
     on("#f_conferma", "change", e => this._set("conferma_accensione", e.target.checked));
     on("#f_timer", "change", e => this._set("mostra_timer", e.target.checked));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
