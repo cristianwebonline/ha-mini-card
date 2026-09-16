@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.38.0";
+const MC_VERSION = "1.39.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -45,6 +45,18 @@ const MC_FASI_NOMI = {
     forte: "riscaldamento", ultimaForte: "riscaldamento", coda: "raffreddamento" },
   generico: { prima: "avvio", alta: "riscaldamento", dopo: "lavoro", poi: "lavoro",
     forte: "motore", ultimaForte: "motore", coda: "fine" },
+};
+
+// QUANTO DOVREBBE CONSUMARE. Valori di targa dei modelli in commercio
+// (kWh all'anno), presi dalle schede energetiche: servono solo a dire se un
+// numero e nella norma, non sono la targa dell'apparecchio di casa.
+//   Frigo combinato 60 cm con cassetti freezer: classe A 92-114, C 176, E 265.
+//   Congelatore verticale ~190 L (60x60x120): classe D 180, E 210, F 246.
+const MC_FREDDO = {
+  frigo: { atteso: 265, alto: 400, nome: "un frigo combinato di classe E",
+    scala: "classe A 92-114 · C 176 · E 265 kWh all'anno" },
+  congelatore: { atteso: 246, alto: 330, nome: "un congelatore verticale da 190 litri di classe F",
+    scala: "classe D 180 · E 210 · F 246 kWh all'anno" },
 };
 
 const MC_DEFAULTS = {
@@ -1023,7 +1035,10 @@ class MiniCard extends HTMLElement {
   // dura piu di PAUSA_MAX il ciclo si considera finito davvero.
   _sessioniDa(pts) {
     const soglia = parseFloat(this._cfg.soglia) || 10;
-    const PAUSA_MAX = 12 * 60 * 1000;   // 12 minuti di calma = ciclo finito
+    // 12 minuti di calma = ciclo finito. Ma un frigo e un altro mestiere: li
+    // ogni fermata del compressore e una fermata vera, e accorparle farebbe
+    // sembrare che non si spenga mai.
+    const PAUSA_MAX = this._eFreddo() ? 60 * 1000 : 12 * 60 * 1000;
     const MINIMA = 60 * 1000;           // sotto un minuto e un colpo di corrente
     const MAX_GAP_S = 2 * 3600;
     const out = {};
@@ -1071,6 +1086,8 @@ class MiniCard extends HTMLElement {
     if (/asciugatric|dryer/.test(n)) return "asciugatrice";
     if (/lavatric|lavabianch|washer/.test(n)) return "lavatrice";
     if (/forno|oven/.test(n)) return "forno";
+    if (/congelator|freezer|surgelat/.test(n)) return "congelatore";
+    if (/frigo|fridge/.test(n)) return "frigo";
     return "generico";
   }
 
@@ -1159,6 +1176,65 @@ class MiniCard extends HTMLElement {
         <span class="mc-fased">${x.min} min</span>
         <span class="mc-fasew">${Math.round(x.media)} W</span></div>`).join("")}
       <div class="mc-fasenota">Fasi ricavate dai consumi, non dichiarate dall'apparecchio.</div></div>`;
+  }
+
+  _eFreddo() { const t = this._tipoApparecchio(); return t === "frigo" || t === "congelatore"; }
+
+  // IL CONTROLLO DEL FREDDO. Un frigo non ha cicli: sta acceso e basta. Le
+  // domande giuste sono tre: consuma piu di come faceva LUI le settimane
+  // scorse? Consuma piu di un modello equivalente? E il compressore, quanto
+  // tempo resta acceso? Un compressore che non si ferma mai e il segnale piu
+  // onesto che qualcosa non va (guarnizione, brina, condensatore sporco).
+  _controlloFreddo() {
+    const giorni = Object.keys(this._hist || {}).sort();
+    if (giorni.length < 4) return null;
+    const oggi = this._dkey(new Date());
+    const pieni = giorni.filter(g => g !== oggi).map(g => ({ g, k: this._hist[g] })).filter(x => x.k > 0);
+    if (pieni.length < 3) return null;
+    const ieri = pieni[pieni.length - 1];
+    const ultimi = pieni.slice(-21).map(x => x.k).sort((a, b) => a - b);
+    const mediana = ultimi[Math.floor(ultimi.length / 2)];
+    const sett = pieni.slice(-7);
+    const mediaSett = sett.reduce((a, x) => a + x.k, 0) / sett.length;
+    const anno = mediaSett * 365;
+    const rif = MC_FREDDO[this._tipoApparecchio()] || MC_FREDDO.frigo;
+    // Il compressore: dalle accensioni del giorno piu completo che ho.
+    let acceso = null, partenze = null;
+    const cicli = (this._sess || {})[ieri.g];
+    if (cicli && cicli.length) {
+      const ms = cicli.reduce((a, x) => a + (x.a - x.da), 0);
+      acceso = Math.min(100, Math.round(100 * ms / 86400000));
+      partenze = cicli.length;
+    }
+    const scostamento = mediana > 0 ? Math.round(100 * (ieri.k - mediana) / mediana) : 0;
+    const guai = [];
+    if (scostamento >= 35) guai.push(`ieri ha consumato il ${scostamento}% in piu della sua media delle ultime settimane`);
+    if (acceso != null && acceso >= 85) guai.push(`il compressore e rimasto acceso il ${acceso}% del tempo: dovrebbe fermarsi molto piu spesso`);
+    if (anno > rif.alto) guai.push(`di questo passo fa ${Math.round(anno)} kWh all'anno, molto piu di ${rif.nome} (${rif.atteso})`);
+    let avviso = "";
+    if (anno > rif.atteso * 1.15 && anno <= rif.alto) avviso = `fa circa ${Math.round(anno)} kWh all'anno: sopra ${rif.nome} (${rif.atteso}), ma nei limiti di un apparecchio non recente`;
+    return { ieri: ieri.k, mediana, mediaSett, anno, scostamento, acceso, partenze, guai, avviso, rif };
+  }
+
+  _freddoHTML() {
+    const c = this._controlloFreddo();
+    if (!c) return "";
+    const male = c.guai.length > 0;
+    const col = male ? "#ff8a3d" : "#4ade80";
+    return `<div class="mc-accgruppo">Controllo consumo</div>
+      <div class="mc-freddo" style="--f-c:${col}">
+        <div class="mc-freddot">${male ? "Qualcosa non torna" : "Consumo nella norma"}</div>
+        ${male ? `<ul class="mc-freddol">${c.guai.map(g => `<li>${this._esc(g)}</li>`).join("")}</ul>`
+          : c.avviso ? `<div class="mc-freddon">${this._esc(c.avviso)}</div>` : ""}
+        <div class="mc-freddor">
+          <div><b>${this._fmt(c.ieri)}</b><small>ieri</small></div>
+          <div><b>${this._fmt(c.mediana)}</b><small>la sua media</small></div>
+          <div><b>${Math.round(c.anno)}</b><small>kWh all'anno</small></div>
+          ${c.acceso != null ? `<div><b>${c.acceso}%</b><small>compressore acceso</small></div>` : ""}
+          ${c.partenze != null ? `<div><b>${c.partenze}</b><small>partenze al giorno</small></div>` : ""}
+        </div>
+        <div class="mc-fasenota">Riferimento: ${this._esc(c.rif.scala)}. Il consumo sale d'estate e con la porta aperta spesso.</div>
+      </div>`;
   }
 
   _durata(ms) {
@@ -1603,6 +1679,15 @@ class MiniCard extends HTMLElement {
       .mc-accsomma{font-size:12px;font-weight:700;color:var(--mc-ink);margin-bottom:9px}
       .mc-accvuoto{font-size:12px;color:var(--mc-muted);padding:6px 0 2px}
       .mc-acclista{display:flex;flex-direction:column;gap:6px}
+      .mc-freddo{padding:11px 12px;border-radius:13px;border:1px solid var(--mc-stroke);
+        background:rgba(255,255,255,.05);border-left:3px solid var(--f-c)}
+      .mc-freddot{font-size:13.5px;font-weight:900;color:var(--f-c)}
+      .mc-freddol{margin:6px 0 0;padding-left:16px;font-size:12px;font-weight:700;line-height:1.45}
+      .mc-freddon{margin-top:5px;font-size:12px;font-weight:700;opacity:.85;line-height:1.45}
+      .mc-freddor{display:flex;flex-wrap:wrap;gap:12px;margin-top:9px}
+      .mc-freddor>div{min-width:60px}
+      .mc-freddor b{display:block;font-size:15px;font-weight:900}
+      .mc-freddor small{display:block;font-size:10px;font-weight:700;opacity:.6}
       .mc-acc.apribile{cursor:pointer}
       .mc-acc.aperto{border-bottom-left-radius:0;border-bottom-right-radius:0}
       .mc-fasi{margin:-4px 0 8px;padding:10px 12px 8px;border-radius:0 0 13px 13px;
@@ -2543,6 +2628,7 @@ class MiniCard extends HTMLElement {
           <div style="text-align:right">${this._fmt(selBar.v)} kWh<small>${this._fmtE(selBar.v)}</small></div></div>
         <div class="mc-avgrow" style="margin-top:8px;opacity:.7"><div>Media al giorno<small>stima su ${days} giorni</small></div>
           <div style="text-align:right">${this._fmt(avgDay)} kWh<small>${this._fmtE(avgDay)}/giorno</small></div></div>
+        ${this._eFreddo() ? this._freddoHTML() : ""}
         ${this._accensioniHTML(selKey, selLabel)}
       </div>`;
       wire();
