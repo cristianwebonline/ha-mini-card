@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.41.0";
+const MC_VERSION = "1.42.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -62,7 +62,10 @@ const MC_FREDDO = {
 const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "", custom_icon_id: "", icona: "auto",
   power: "",
-  riferimento: "",          // kWh all'anno di targa (frigo/congelatore) energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
+  riferimento: "",          // kWh all'anno di targa (frigo/congelatore)
+  freddo_tipo: "auto",      // auto | frigo | congelatore | no
+  soglia_media: 35,         // % sopra la sua media che fa scattare l'avviso
+  soglia_targa: 1.5,        // quante volte la targa prima di gridare energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
   taglia: "normale",
   // Di serie chiede conferma prima di accendere o spegnere: il tocco sulla
@@ -1179,7 +1182,17 @@ class MiniCard extends HTMLElement {
       <div class="mc-fasenota">Fasi ricavate dai consumi, non dichiarate dall'apparecchio.</div></div>`;
   }
 
-  _eFreddo() { const t = this._tipoApparecchio(); return t === "frigo" || t === "congelatore"; }
+  // Che cosa e, per il controllo del freddo: quello scelto nella scheda,
+  // se no quello indovinato dal nome.
+  _tipoFreddo() {
+    const scelto = this._cfg.freddo_tipo || "auto";
+    if (scelto === "frigo" || scelto === "congelatore") return scelto;
+    if (scelto === "no") return "";
+    const t = this._tipoApparecchio();
+    return t === "frigo" || t === "congelatore" ? t : "";
+  }
+
+  _eFreddo() { return !!this._tipoFreddo(); }
 
   // IL CONTROLLO DEL FREDDO. Un frigo non ha cicli: sta acceso e basta. Le
   // domande giuste sono tre: consuma piu di come faceva LUI le settimane
@@ -1201,11 +1214,12 @@ class MiniCard extends HTMLElement {
     // Il valore di targa dell'apparecchio VERO, se e stato scritto nella
     // scheda, vince sul valore generico della classe: il frigo di casa e un
     // Haier HFR5720EWMG da 477 litri, 302 kWh all'anno dichiarati.
-    const base = MC_FREDDO[this._tipoApparecchio()] || MC_FREDDO.frigo;
+    const base = MC_FREDDO[this._tipoFreddo()] || MC_FREDDO.frigo;
     const targa = parseFloat(this._cfg.riferimento);
+    const volte = parseFloat(this._cfg.soglia_targa) > 0 ? parseFloat(this._cfg.soglia_targa) : 1.5;
     const rif = targa > 0
-      ? { atteso: targa, alto: Math.round(targa * 1.5), nome: "la sua targa", scala: targa + " kWh all'anno dichiarati dal costruttore" }
-      : base;
+      ? { atteso: targa, alto: Math.round(targa * volte), nome: "la sua targa", scala: targa + " kWh all'anno dichiarati dal costruttore" }
+      : { atteso: base.atteso, alto: Math.round(base.atteso * volte), nome: base.nome, scala: base.scala };
     // Il compressore: dalle accensioni del giorno piu completo che ho.
     let acceso = null, partenze = null;
     const cicli = (this._sess || {})[ieri.g];
@@ -1216,20 +1230,22 @@ class MiniCard extends HTMLElement {
     }
     const scostamento = mediana > 0 ? Math.round(100 * (ieri.k - mediana) / mediana) : 0;
     const guai = [];
-    if (scostamento >= 35) guai.push(`ieri ha consumato il ${scostamento}% in piu della sua media delle ultime settimane`);
+    const sogliaMedia = parseFloat(this._cfg.soglia_media) > 0 ? parseFloat(this._cfg.soglia_media) : 35;
+    if (scostamento >= sogliaMedia) guai.push(`ieri ha consumato il ${scostamento}% in piu della sua media delle ultime settimane`);
     // Il compressore sempre acceso NON e di per se un guaio: i compressori
     // inverter (il frigo di casa e uno di questi) sono fatti apposta per
     // girare piano e di continuo invece di partire e fermarsi. Diventa un
     // segnale solo se in piu sta consumando piu del suo solito.
-    if (acceso != null && acceso >= 85 && scostamento >= 15)
+    if (acceso != null && acceso >= 85 && scostamento >= Math.min(15, sogliaMedia))
       guai.push(`il compressore non si e quasi mai fermato (${acceso}% del tempo) e intanto il consumo e salito: vale la pena guardare guarnizioni e aerazione`);
     if (anno > rif.alto) guai.push(`di questo passo fa ${Math.round(anno)} kWh all'anno, molto piu di ${rif.nome} (${rif.atteso})`);
     let avviso = "";
     if (anno > rif.atteso * 1.15 && anno <= rif.alto) avviso = `fa circa ${Math.round(anno)} kWh all'anno: sopra ${rif.nome} (${rif.atteso}), ma nei limiti di un apparecchio non recente`;
-    return { ieri: ieri.k, mediana, mediaSett, anno, scostamento, acceso, partenze, guai, avviso, rif };
+    return { ieri: ieri.k, mediana, mediaSett, anno, scostamento, acceso, partenze, guai, avviso, rif, sogliaMedia };
   }
 
   _freddoHTML() {
+    if (!this._eFreddo()) return "";     // controllo spento nella scheda
     const c = this._controlloFreddo();
     if (!c) return "";
     const male = c.guai.length > 0;
@@ -1246,7 +1262,8 @@ class MiniCard extends HTMLElement {
           ${c.acceso != null ? `<div><b>${c.acceso}%</b><small>compressore acceso</small></div>` : ""}
           ${c.partenze != null ? `<div><b>${c.partenze}</b><small>partenze al giorno</small></div>` : ""}
         </div>
-        <div class="mc-fasenota">Riferimento: ${this._esc(c.rif.scala)}. Il consumo sale d'estate e con la porta aperta spesso.</div>
+        <div class="mc-fasenota">Riferimento: ${this._esc(c.rif.scala)}. Avvisa oltre +${c.sogliaMedia}% sulla sua media
+          o oltre ${c.rif.alto} kWh all'anno. Il consumo sale d'estate e con la porta aperta spesso.</div>
       </div>`;
   }
 
@@ -3166,8 +3183,23 @@ class MiniCardEditor extends HTMLElement {
             <option value="quadrata"${c.taglia === "quadrata" ? " selected" : ""}>Quadrata</option>
           </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
+        <div class="fld"><label>Controllo consumo (frigo e congelatore)</label>
+          <span class="h">Confronta l'apparecchio con se stesso e con la sua targa. Cambiando frigo o congelatore basta aggiornare questi quattro campi.</span>
+          <select id="f_freddotipo">
+            <option value="auto"${(c.freddo_tipo || "auto") === "auto" ? " selected" : ""}>Riconoscilo dal nome</option>
+            <option value="frigo"${c.freddo_tipo === "frigo" ? " selected" : ""}>E un frigorifero</option>
+            <option value="congelatore"${c.freddo_tipo === "congelatore" ? " selected" : ""}>E un congelatore</option>
+            <option value="no"${c.freddo_tipo === "no" ? " selected" : ""}>Non fare il controllo</option>
+          </select></div>
         <div class="fld"><label>Consumo di targa (kWh all'anno)</label>
-          <input type="number" min="0" max="2000" id="f_rif" placeholder="solo frigo e congelatore" value="${c.riferimento || ""}"></div>
+          <span class="h">Sta sull'etichetta energetica. Lasciandolo vuoto usa il valore tipico della categoria.</span>
+          <input type="number" min="0" max="2000" id="f_rif" placeholder="es. 302" value="${c.riferimento || ""}"></div>
+        <div class="row">
+          <div class="fld"><label>Avvisa oltre il +% sulla sua media</label>
+            <input type="number" min="5" max="200" id="f_sogliamedia" value="${c.soglia_media ?? 35}"></div>
+          <div class="fld"><label>Avvisa oltre la targa per</label>
+            <input type="number" min="1" max="5" step="0.1" id="f_sogliatarga" value="${c.soglia_targa ?? 1.5}"></div>
+        </div>
       </div>
       <div class="fld"><label>Timer</label>
         <label class="ck"><input type="checkbox" id="f_timer"${c.mostra_timer ? " checked" : ""}> Metti l'orologio sulla card</label>
@@ -3247,6 +3279,9 @@ class MiniCardEditor extends HTMLElement {
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_rif", "change", e => this._set("riferimento", parseInt(e.target.value) || ""));
+    on("#f_freddotipo", "change", e => this._set("freddo_tipo", e.target.value));
+    on("#f_sogliamedia", "change", e => this._set("soglia_media", parseInt(e.target.value) || 35));
+    on("#f_sogliatarga", "change", e => this._set("soglia_targa", parseFloat(e.target.value) || 1.5));
     on("#f_conferma", "change", e => this._set("conferma_accensione", e.target.checked));
     on("#f_timer", "change", e => this._set("mostra_timer", e.target.checked));
     on("#f_sfreddo", "change", e => this._set("soglia_freddo", parseFloat(String(e.target.value).replace(",", ".")) || 18));
