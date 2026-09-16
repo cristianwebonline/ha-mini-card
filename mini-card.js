@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.42.0";
+const MC_VERSION = "1.43.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1267,6 +1267,214 @@ class MiniCard extends HTMLElement {
       </div>`;
   }
 
+
+  // =========================================================================
+  // L'INTERVISTA.
+  // Un apparecchio sa un sacco di cose su di se ma non le dice: i numeri
+  // stanno nelle statistiche di Home Assistant e bisogna andarseli a pescare.
+  // Qui gli si fanno domande e risponde in prima persona, con i suoi dati.
+  //
+  // Tutto esce da UNA chiamata sola: le medie orarie del sensore di potenza
+  // nel periodo scelto. Da quelle si ricava il totale, il profilo delle 24
+  // ore, i giorni, il giorno peggiore e il confronto con il periodo prima.
+  // =========================================================================
+  _periodo(nome) {
+    const ora = new Date();
+    const g0 = new Date(ora.getFullYear(), ora.getMonth(), ora.getDate());
+    const meno = n => new Date(g0.getTime() - n * 86400000);
+    if (nome === "oggi") return { da: g0, a: ora, t: "oggi", giorni: 1 };
+    if (nome === "ieri") return { da: meno(1), a: g0, t: "ieri", giorni: 1 };
+    if (nome === "mese") return { da: new Date(ora.getFullYear(), ora.getMonth(), 1), a: ora, t: "questo mese", giorni: ora.getDate() };
+    if (nome === "mesescorso") {
+      const d = new Date(ora.getFullYear(), ora.getMonth() - 1, 1);
+      const f = new Date(ora.getFullYear(), ora.getMonth(), 1);
+      return { da: d, a: f, t: d.toLocaleDateString("it-IT", { month: "long" }), giorni: Math.round((f - d) / 86400000) };
+    }
+    if (/^m\d+$/.test(nome)) {            // un mese preciso: m0 = gennaio
+      const m = parseInt(nome.slice(1), 10);
+      const anno = m > ora.getMonth() ? ora.getFullYear() - 1 : ora.getFullYear();
+      const d = new Date(anno, m, 1), f = new Date(anno, m + 1, 1);
+      return { da: d, a: f > ora ? ora : f, t: d.toLocaleDateString("it-IT", { month: "long" }), giorni: Math.round(((f > ora ? ora : f) - d) / 86400000) };
+    }
+    const n = parseInt(nome, 10) || 7;
+    return { da: meno(n), a: ora, t: "negli ultimi " + n + " giorni", giorni: n };
+  }
+
+  async _statOre(da, a) {
+    const h = this._hass, id = this._cfg.power;
+    if (!h || !id) return null;
+    const res = await h.callWS({
+      type: "recorder/statistics_during_period",
+      start_time: da.toISOString(), end_time: a.toISOString(),
+      statistic_ids: [id], period: "hour", types: ["mean"],
+    });
+    const righe = (res && res[id]) || [];
+    return righe.map(r => ({
+      t: typeof r.start === "number" ? r.start : new Date(r.start).getTime(),
+      w: r.mean == null ? 0 : r.mean,
+    })).filter(x => isFinite(x.t));
+  }
+
+  // Tutto quello che serve alle risposte, in un colpo solo.
+  async _dati(nomePeriodo) {
+    this._cache = this._cache || {};
+    if (this._cache[nomePeriodo]) return this._cache[nomePeriodo];
+    const p = this._periodo(nomePeriodo);
+    const ore = await this._statOre(p.da, p.a);
+    if (!ore || !ore.length) return null;
+    const perOra = new Array(24).fill(0), quanteOra = new Array(24).fill(0);
+    const giorni = {};
+    let tot = 0;
+    ore.forEach(x => {
+      const kwh = x.w / 1000;                   // media oraria in W -> kWh di quell'ora
+      tot += kwh;
+      const d = new Date(x.t);
+      perOra[d.getHours()] += kwh;
+      quanteOra[d.getHours()]++;
+      const k = this._dkey(d);
+      giorni[k] = (giorni[k] || 0) + kwh;
+    });
+    const mediaOra = perOra.map((v, i) => quanteOra[i] ? v / quanteOra[i] : 0);
+    const elenco = Object.keys(giorni).sort().map(k => ({ k, v: giorni[k] }));
+    // I giorni su cui fare la media sono quelli del periodo chiesto, non le
+    // caselle di calendario toccate: "ultimi 7 giorni" ne tocca 8 perche oggi
+    // e a meta, e dire "su 8 giorni" dopo aver detto "ultimi 7" confonde.
+    // "Ultimi 7 giorni" vuol dire 7, anche se tocca 8 caselle di calendario
+    // perche oggi e a meta: la media si fa sui giorni chiesti.
+    const durata = Math.max(1, p.giorni || Math.round((p.a - p.da) / 86400000) || 1);
+    const r = { p, tot, perOra, mediaOra, giorni: elenco, nGiorni: durata, nGiorniVisti: elenco.length };
+    this._cache[nomePeriodo] = r;
+    return r;
+  }
+
+  _nomeSuo() { return this._cfg.name || "questo apparecchio"; }
+
+  _dataLunga(k) {
+    const [a, m, g] = k.split("-").map(Number);
+    return new Date(a, m - 1, g).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+  }
+
+  // Il grafichino delle 24 ore dentro la risposta.
+  _oreHTML(mediaOra) {
+    const mx = Math.max.apply(null, mediaOra) || 1;
+    return `<div class="mc-oregraf">${mediaOra.map((v, i) => `<i style="height:${Math.max(3, Math.round(v / mx * 100))}%"
+      title="ore ${i}"></i>`).join("")}</div>
+      <div class="mc-oreetichette"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>`;
+  }
+
+  async _rispondi(intento, nomePeriodo) {
+    const d = await this._dati(nomePeriodo);
+    if (!d) return "Di quel periodo non ho registrazioni: Home Assistant tiene i dati dettagliati per un po' di tempo, poi li riassume.";
+    const p = d.p;
+    const media = d.nGiorni ? d.tot / d.nGiorni : 0;
+    if (intento === "ore") {
+      const ordinate = d.mediaOra.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v).filter(x => x.v > 0);
+      if (!ordinate.length) return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} non ho mai lavorato.`;
+      const top = ordinate.slice(0, 3).map(x => `<b>${String(x.i).padStart(2, "0")}:00</b> (${this._fmt(x.v)} kWh)`);
+      return `Lavoro soprattutto verso le ${top.join(", ")}. Questo e il mio profilo di una giornata tipo ${p.t}:
+        ${this._oreHTML(d.mediaOra)}`;
+    }
+    if (intento === "peggiore") {
+      if (!d.giorni.length) return "Non ho giorni da confrontare in quel periodo.";
+      const peg = d.giorni.slice().sort((a, b) => b.v - a.v)[0];
+      const quanto = media > 0 ? Math.round(100 * (peg.v / media - 1)) : 0;
+      return `Il giorno in cui ho lavorato di piu e stato <b>${this._esc(this._dataLunga(peg.k))}</b>:
+        ${this._fmt(peg.v)} kWh, il ${quanto}% sopra la mia media di quel periodo.`;
+    }
+    if (intento === "costo") {
+      const prezzo = parseFloat(this._cfg.prezzo_kwh) || 0;
+      const mese = media * 30;
+      return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} ti sono costato <b>${this._fmtE(d.tot).replace("≈ ", "")}</b>.
+        Di questo passo sono ${this._fmtE(mese).replace("≈ ", "")} al mese e ${this._fmtE(media * 365).replace("≈ ", "")} all'anno,
+        contando ${prezzo.toLocaleString("it-IT", { minimumFractionDigits: 2 })} € al kWh.`;
+    }
+    if (intento === "confronto") {
+      const n = p.giorni;
+      const fine = p.da;
+      const inizio = new Date(fine.getTime() - n * 86400000);
+      const ore = await this._statOre(inizio, fine);
+      if (!ore || !ore.length) return "Non ho abbastanza storia per confrontarmi con il periodo prima.";
+      const prima = ore.reduce((a, x) => a + x.w / 1000, 0);
+      if (prima <= 0) return "Nel periodo precedente non risulto aver lavorato, quindi il confronto non direbbe niente.";
+      const diff = Math.round(100 * (d.tot / prima - 1));
+      const verso = diff > 3 ? "di piu" : diff < -3 ? "di meno" : "uguale";
+      return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} ho consumato ${this._fmt(d.tot)} kWh; nello stesso numero di giorni
+        prima ne avevo consumati ${this._fmt(prima)}. Quindi sto consumando <b>${verso}</b>${Math.abs(diff) > 3 ? `, del ${Math.abs(diff)}%` : ""}.`;
+    }
+    if (intento === "acceso") {
+      const soglia = (parseFloat(this._cfg.soglia) || 10) / 1000;
+      const attive = d.mediaOra.filter(v => v > soglia).length;
+      const prima = d.mediaOra.findIndex(v => v > soglia);
+      let ultima = -1;
+      d.mediaOra.forEach((v, i) => { if (v > soglia) ultima = i; });
+      if (prima < 0) return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} non mi sono praticamente mai acceso.`;
+      return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} risulto al lavoro in circa <b>${attive} ore su 24</b>,
+        di solito fra le ${String(prima).padStart(2, "0")}:00 e le ${String(ultima).padStart(2, "0")}:00.
+        ${this._oreHTML(d.mediaOra)}`;
+    }
+    // totale, che e anche la risposta di riserva
+    return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} ho consumato <b>${this._fmt(d.tot)} kWh</b>
+      (${this._fmtE(d.tot).replace("≈ ", "circa ")}), in media ${this._fmt(media)} kWh al giorno su ${d.nGiorni}
+      ${d.nGiorni === 1 ? "giorno" : "giorni"}.`;
+  }
+
+  // Capire una domanda scritta a mano. Niente intelligenza artificiale: si
+  // cercano le parole che contano, e se non si capisce lo si dice.
+  _capisci(testo) {
+    const t = " " + String(testo || "").toLowerCase().trim() + " ";
+    const mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+      "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+    let periodo = null;
+    const gg = t.match(/ultimi?\s+(\d{1,3})\s*giorni/);
+    if (gg) periodo = gg[1];
+    else if (/\boggi\b/.test(t)) periodo = "oggi";
+    else if (/\bieri\b/.test(t)) periodo = "ieri";
+    else if (/mese scorso|scorso mese/.test(t)) periodo = "mesescorso";
+    else if (/questo mese|\bmese\b/.test(t)) periodo = "mese";
+    else if (/settimana/.test(t)) periodo = "7";
+    else {
+      const m = mesi.findIndex(x => t.includes(x));
+      if (m >= 0) periodo = "m" + m;
+    }
+    let intento = null;
+    if (/che ?or|quali ?or|\bore\b|orari|quando consum|fascia/.test(t)) intento = "ore";
+    else if (/peggior|massim|record|giorno piu|giorno più/.test(t)) intento = "peggiore";
+    else if (/cost|euro|spes|bolletta|soldi/.test(t)) intento = "costo";
+    else if (/cambiat|confront|rispetto|prima|meno di|piu di|più di/.test(t)) intento = "confronto";
+    else if (/quando ti accendi|quanto stai acceso|acceso|lavori/.test(t)) intento = "acceso";
+    else if (/quanto|consum|kwh/.test(t)) intento = "totale";
+    return { intento, periodo };
+  }
+
+  _intervistaHTML() {
+    const dom = [
+      ["totale", "Quanto hai consumato?"],
+      ["ore", "In quali ore consumi di piu?"],
+      ["peggiore", "Qual e stato il giorno peggiore?"],
+      ["costo", "Quanto mi costi?"],
+      ["confronto", "Sei cambiato?"],
+      ["acceso", "Quando sei al lavoro?"],
+    ];
+    const per = [["oggi", "oggi"], ["ieri", "ieri"], ["7", "7 giorni"], ["30", "30 giorni"],
+      ["mese", "questo mese"], ["mesescorso", "mese scorso"]];
+    const attuale = this._perNome || "7";
+    const chat = (this._chat || []).map(m => m.chi === "io"
+      ? `<div class="mc-bolla mc-mia">${this._esc(m.t)}</div>`
+      : `<div class="mc-bolla mc-sua">${m.t}</div>`).join("");
+    return `<div class="mc-intervista">
+      <div class="mc-accgruppo">Chiedi a ${this._esc(this._nomeSuo())}</div>
+      <div class="mc-chips">${per.map(([k, t]) => `<button type="button" class="mc-chip${k === attuale ? " sel" : ""}"
+        data-per="${k}">${t}</button>`).join("")}</div>
+      <div class="mc-chat">${chat || `<div class="mc-bolla mc-sua">Chiedimi quello che vuoi sui miei consumi.
+        Posso guardare indietro fino a dove arriva la memoria di Home Assistant.</div>`}</div>
+      <div class="mc-chips">${dom.map(([k, t]) => `<button type="button" class="mc-chip" data-dom="${k}">${t}</button>`).join("")}</div>
+      <div class="mc-riga-chiedi">
+        <input id="mc_chiedi" placeholder="oppure scrivi: quanto hai consumato ad agosto?" autocomplete="off">
+        <button type="button" class="mc-chip sel" data-invia>Chiedi</button>
+      </div>
+    </div>`;
+  }
+
   _durata(ms) {
     const min = Math.round(ms / 60000);
     if (min < 60) return min + " min";
@@ -1709,6 +1917,25 @@ class MiniCard extends HTMLElement {
       .mc-accsomma{font-size:12px;font-weight:700;color:var(--mc-ink);margin-bottom:9px}
       .mc-accvuoto{font-size:12px;color:var(--mc-muted);padding:6px 0 2px}
       .mc-acclista{display:flex;flex-direction:column;gap:6px}
+      .mc-chiedibtn{width:100%;margin:10px 0 2px;padding:11px;border-radius:13px;cursor:pointer;
+        border:1px solid var(--mc-stroke);background:rgba(90,169,255,.12);color:inherit;font:inherit;font-size:13.5px;font-weight:800}
+      .mc-chiedibtn:active{transform:scale(.99)}
+      .mc-intervista{margin-top:10px}
+      .mc-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+      .mc-chip{padding:6px 10px;border-radius:999px;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.05);
+        color:inherit;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;text-align:left}
+      .mc-chip.sel{background:rgba(90,169,255,.22);border-color:rgba(90,169,255,.5)}
+      .mc-chat{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;padding:4px 2px}
+      .mc-bolla{max-width:88%;padding:9px 12px;border-radius:15px;font-size:13px;line-height:1.5}
+      .mc-bolla b{font-weight:800}
+      .mc-mia{align-self:flex-end;background:rgba(90,169,255,.22);border-bottom-right-radius:5px}
+      .mc-sua{align-self:flex-start;background:rgba(255,255,255,.07);border:1px solid var(--mc-stroke);border-bottom-left-radius:5px}
+      .mc-oregraf{display:flex;align-items:flex-end;gap:1.5px;height:44px;margin-top:9px}
+      .mc-oregraf i{flex:1;background:linear-gradient(180deg,#5aa9ff,rgba(90,169,255,.35));border-radius:2px 2px 0 0;min-height:3px}
+      .mc-oreetichette{display:flex;justify-content:space-between;font-size:9.5px;opacity:.55;font-weight:700;margin-top:3px}
+      .mc-riga-chiedi{display:flex;gap:6px;align-items:center}
+      .mc-riga-chiedi input{flex:1;min-width:0;padding:9px 11px;border-radius:12px;border:1px solid var(--mc-stroke);
+        background:rgba(255,255,255,.05);color:inherit;font:inherit;font-size:13px}
       .mc-freddo{padding:11px 12px;border-radius:13px;border:1px solid var(--mc-stroke);
         background:rgba(255,255,255,.05);border-left:3px solid var(--f-c)}
       .mc-freddot{font-size:13.5px;font-weight:900;color:var(--f-c)}
@@ -2570,6 +2797,7 @@ class MiniCard extends HTMLElement {
     let period = "7";
     // null = nessun giorno scelto a mano -> mostra "Oggi" (l'ultima barra).
     let selectedIdx = null;
+    let vista = "storico";
     const render = () => {
       const on = this._isOn();
       const st = this._stato();
@@ -2625,6 +2853,48 @@ class MiniCard extends HTMLElement {
         wire();
         return;
       }
+      if (vista === "intervista") {
+        ov.innerHTML = `<div class="mc-modal">${heroHTML}
+          <button type="button" class="mc-chiedibtn" data-torna>Torna ai consumi</button>
+          ${this._intervistaHTML()}</div>`;
+        wire();
+        this._ridisegnaFoglio = render;
+        ov.querySelector("[data-torna]").onclick = () => { vista = "storico"; render(); };
+        const chiedi = async (intento, testo, periodo) => {
+          this._chat = this._chat || [];
+          this._chat.push({ chi: "io", t: testo });
+          this._chat.push({ chi: "lui", t: "<i>ci penso…</i>" });
+          render();
+          const r = await this._rispondi(intento, periodo || this._perNome || "7");
+          this._chat[this._chat.length - 1] = { chi: "lui", t: r };
+          render();
+          const c = ov.querySelector(".mc-chat");
+          if (c) c.scrollTop = c.scrollHeight;
+        };
+        ov.querySelectorAll("[data-per]").forEach(el => el.onclick = () => {
+          this._perNome = el.dataset.per; render();
+        });
+        ov.querySelectorAll("[data-dom]").forEach(el => el.onclick = () => chiedi(el.dataset.dom, el.textContent.trim()));
+        const inviaTesto = () => {
+          const inp = ov.querySelector("#mc_chiedi");
+          const testo = (inp.value || "").trim();
+          if (!testo) return;
+          inp.value = "";
+          const c = this._capisci(testo);
+          if (!c.intento && !c.periodo) {
+            this._chat = this._chat || [];
+            this._chat.push({ chi: "io", t: testo });
+            this._chat.push({ chi: "lui", t: "Questa non l'ho capita. Prova con uno dei tasti qui sotto, oppure scrivi per esempio \"quanto hai consumato a luglio\" o \"in che ore consumi di piu\"." });
+            render();
+            return;
+          }
+          if (c.periodo) this._perNome = c.periodo;
+          chiedi(c.intento || "totale", testo, c.periodo);
+        };
+        ov.querySelector("[data-invia]").onclick = inviaTesto;
+        ov.querySelector("#mc_chiedi").onkeydown = e => { if (e.key === "Enter") inviaTesto(); };
+        return;
+      }
       const daily = this._hist || {};
       const days = parseInt(period);
       const today = new Date();
@@ -2659,9 +2929,12 @@ class MiniCard extends HTMLElement {
         <div class="mc-avgrow" style="margin-top:8px;opacity:.7"><div>Media al giorno<small>stima su ${days} giorni</small></div>
           <div style="text-align:right">${this._fmt(avgDay)} kWh<small>${this._fmtE(avgDay)}/giorno</small></div></div>
         ${this._eFreddo() ? this._freddoHTML() : ""}
+        <button type="button" class="mc-chiedibtn" data-intervista>Fai una domanda a ${this._esc(this._nomeSuo())}</button>
         ${this._accensioniHTML(selKey, selLabel)}
       </div>`;
       wire();
+      const btnI = ov.querySelector("[data-intervista]");
+      if (btnI) btnI.onclick = () => { vista = "intervista"; render(); };
       // Le accensioni arrivano dopo: quando arrivano, il foglio si ridisegna.
       this._ridisegnaFoglio = render;
       ov.querySelectorAll(".mc-tab").forEach(el => el.onclick = () => { period = el.dataset.p; selectedIdx = null; render(); });
