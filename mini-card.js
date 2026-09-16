@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.40.0";
+const MC_VERSION = "1.41.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1217,7 +1217,12 @@ class MiniCard extends HTMLElement {
     const scostamento = mediana > 0 ? Math.round(100 * (ieri.k - mediana) / mediana) : 0;
     const guai = [];
     if (scostamento >= 35) guai.push(`ieri ha consumato il ${scostamento}% in piu della sua media delle ultime settimane`);
-    if (acceso != null && acceso >= 85) guai.push(`il compressore e rimasto acceso il ${acceso}% del tempo: dovrebbe fermarsi molto piu spesso`);
+    // Il compressore sempre acceso NON e di per se un guaio: i compressori
+    // inverter (il frigo di casa e uno di questi) sono fatti apposta per
+    // girare piano e di continuo invece di partire e fermarsi. Diventa un
+    // segnale solo se in piu sta consumando piu del suo solito.
+    if (acceso != null && acceso >= 85 && scostamento >= 15)
+      guai.push(`il compressore non si e quasi mai fermato (${acceso}% del tempo) e intanto il consumo e salito: vale la pena guardare guarnizioni e aerazione`);
     if (anno > rif.alto) guai.push(`di questo passo fa ${Math.round(anno)} kWh all'anno, molto piu di ${rif.nome} (${rif.atteso})`);
     let avviso = "";
     if (anno > rif.atteso * 1.15 && anno <= rif.alto) avviso = `fa circa ${Math.round(anno)} kWh all'anno: sopra ${rif.nome} (${rif.atteso}), ma nei limiti di un apparecchio non recente`;
