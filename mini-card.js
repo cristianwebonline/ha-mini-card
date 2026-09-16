@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.37.0";
+const MC_VERSION = "1.38.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -20,6 +20,31 @@ const MC_STATI_ACCESI = {
   vacuum: ["cleaning", "returning"],
   media_player: ["playing", "on", "paused", "buffering"],
   fan: ["on"],
+};
+
+// LE FASI DI UN CICLO, LETTE DAI CONSUMI.
+// Misurato sulla lavatrice vera: carico 5 min a 41 W, riscaldamento 12 min a
+// 2140 W, lavaggio 24 min sui 60 W con spunti a 222 W, risciacqui 14 min,
+// centrifuga 8 min a 245 W, scarico 2 min. Le fasce sotto vengono da li.
+const MC_FASCIA_ALTA = 1200;   // resistenza che scalda
+const MC_FASCIA_MEDIA = 150;   // motore sotto sforzo (cesto, centrifuga)
+const MC_FASCIA_BASSA = 8;     // pompe, valvole, elettronica
+
+// Per ogni tipo di apparecchio, come si chiamano le fasi.
+// prima = fascia bassa prima del primo riscaldamento; dopo = la bassa subito
+// dopo; poi = le basse successive; forte = la fascia media; ultimaForte = la
+// fascia media finale; coda = la bassa breve in fondo.
+const MC_FASI_NOMI = {
+  lavatrice: { prima: "carico acqua", alta: "riscaldamento", dopo: "lavaggio", poi: "risciacquo",
+    forte: "movimento cesto", ultimaForte: "centrifuga", coda: "scarico" },
+  lavastoviglie: { prima: "carico acqua", alta: "riscaldamento", dopo: "lavaggio", poi: "risciacquo",
+    forte: "pompa di lavaggio", ultimaForte: "pompa di lavaggio", coda: "scarico", ultimaBassa: "asciugatura" },
+  asciugatrice: { prima: "avvio", alta: "riscaldamento", dopo: "asciugatura", poi: "asciugatura",
+    forte: "tamburo", ultimaForte: "tamburo", coda: "raffreddamento" },
+  forno: { prima: "avvio", alta: "riscaldamento", dopo: "mantiene la temperatura", poi: "mantiene la temperatura",
+    forte: "riscaldamento", ultimaForte: "riscaldamento", coda: "raffreddamento" },
+  generico: { prima: "avvio", alta: "riscaldamento", dopo: "lavoro", poi: "lavoro",
+    forte: "motore", ultimaForte: "motore", coda: "fine" },
 };
 
 const MC_DEFAULTS = {
@@ -1008,7 +1033,12 @@ class MiniCard extends HTMLElement {
       const durata = (cur.ultimoSopra || cur.da) - cur.da;
       if (durata >= MINIMA) {
         const k = this._dkey(new Date(cur.da));
-        (out[k] = out[k] || []).push({ da: cur.da, a: cur.ultimoSopra || cur.da, kwh: cur.kwh, picco: cur.picco });
+        let prof = cur.prof || [];
+        if (prof.length > 200) {        // assottiglio: al minuto basta e avanza
+          const passo = Math.ceil(prof.length / 200);
+          prof = prof.filter((x, i) => i % passo === 0);
+        }
+        (out[k] = out[k] || []).push({ da: cur.da, a: cur.ultimoSopra || cur.da, kwh: cur.kwh, picco: cur.picco, prof });
       }
       cur = null;
     };
@@ -1018,7 +1048,7 @@ class MiniCard extends HTMLElement {
       const dtS = succ ? Math.min(MAX_GAP_S, (succ.t - p.t) / 1000) : 0;
       const sopra = p.w > soglia;
       if (sopra) {
-        if (!cur) cur = { da: p.t, kwh: 0, picco: 0 };
+        if (!cur) cur = { da: p.t, kwh: 0, picco: 0, prof: [] };
         cur.ultimoSopra = succ ? succ.t : p.t;
         cur.picco = Math.max(cur.picco, p.w);
       } else if (cur && p.t - cur.ultimoSopra > PAUSA_MAX) {
@@ -1027,9 +1057,108 @@ class MiniCard extends HTMLElement {
       // L'energia si somma comunque finche il ciclo e aperto: le pause di un
       // lavaggio fanno parte del lavaggio.
       if (cur && dtS > 0) cur.kwh += (p.w * dtS) / 3600 / 1000;
+      if (cur) cur.prof.push({ t: p.t, w: p.w });
     }
     chiudi();
     return out;
+  }
+
+  // Che apparecchio e: lo decide il nome, come per l'icona.
+  _tipoApparecchio() {
+    const n = [this._cfg.name, this._cfg.switch, this._cfg.power, this._cfg.device_id]
+      .filter(Boolean).join(" ").toLowerCase();
+    if (/lavastovigl|dishwash/.test(n)) return "lavastoviglie";
+    if (/asciugatric|dryer/.test(n)) return "asciugatrice";
+    if (/lavatric|lavabianch|washer/.test(n)) return "lavatrice";
+    if (/forno|oven/.test(n)) return "forno";
+    return "generico";
+  }
+
+  // LE FASI DEL CICLO. Non le dice l'apparecchio: si ricavano dalla forma dei
+  // consumi, raggruppando i minuti per fascia di potenza e dando un nome al
+  // gruppo in base a dove si trova nel ciclo (prima o dopo il riscaldamento,
+  // e se e l'ultimo tratto sotto sforzo).
+  _fasi(sess) {
+    const prof = (sess && sess.prof) || [];
+    if (prof.length < 4) return [];
+    // Un valore al minuto: le letture arrivano ogni 10-15 secondi e i minuti
+    // rendono il quadro leggibile invece di un pettine.
+    const minuti = [];
+    prof.forEach(p => {
+      const m = Math.floor(p.t / 60000);
+      const u = minuti[minuti.length - 1];
+      if (u && u.m === m) { u.v.push(p.w); return; }
+      minuti.push({ m, v: [p.w] });
+    });
+    const fascia = w => w >= MC_FASCIA_ALTA ? 3 : w >= MC_FASCIA_MEDIA ? 2 : w >= MC_FASCIA_BASSA ? 1 : 0;
+    let seg = [];
+    minuti.forEach(x => {
+      const media = x.v.reduce((a, b) => a + b, 0) / x.v.length;
+      const picco = Math.max.apply(null, x.v);
+      const f = fascia(media);
+      const u = seg[seg.length - 1];
+      if (u && u.f === f) { u.fine = x.m; u.w.push(media); u.picco = Math.max(u.picco, picco); return; }
+      seg.push({ f, da: x.m, fine: x.m, w: [media], picco });
+    });
+    // Un minuto isolato non e una fase: si fonde con quella accanto.
+    const unito = [];
+    seg.forEach(x => {
+      const durata = x.fine - x.da + 1;
+      const u = unito[unito.length - 1];
+      if (durata < 2 && u) { u.fine = x.fine; u.w = u.w.concat(x.w); u.picco = Math.max(u.picco, x.picco); return; }
+      unito.push(x);
+    });
+    seg = unito.filter(x => x.f > 0 || x.fine - x.da + 1 >= 3);
+    // Il silenzio in testa e in coda non e una fase: e il prima e il dopo.
+    // (Dentro il ciclo invece una pausa conta, per esempio l'ammollo.)
+    while (seg.length && seg[0].f === 0) seg.shift();
+    while (seg.length && seg[seg.length - 1].f === 0) seg.pop();
+    if (!seg.length) return [];
+    // I nomi: dipendono da dove sta la fase nel ciclo.
+    const nomi = MC_FASI_NOMI[this._tipoApparecchio()] || MC_FASI_NOMI.generico;
+    const primaAlta = seg.findIndex(x => x.f === 3);
+    let ultimaForte = -1;
+    seg.forEach((x, i) => { if (x.f === 2 && x.fine - x.da + 1 >= 3) ultimaForte = i; });
+    let basseDopo = 0;
+    return seg.map((x, i) => {
+      const durata = x.fine - x.da + 1;
+      let t;
+      if (x.f === 3) t = nomi.alta;
+      else if (x.f === 2) t = i === ultimaForte ? nomi.ultimaForte : nomi.forte;
+      else if (x.f === 1) {
+        if (primaAlta < 0 || i < primaAlta) t = nomi.prima;
+        else if (i === seg.length - 1 && durata < 5) t = nomi.coda;
+        else if (i === seg.length - 1 && nomi.ultimaBassa) t = nomi.ultimaBassa;
+        else t = (basseDopo++ === 0) ? nomi.dopo : nomi.poi;
+      } else t = "pausa";
+      const media = x.w.reduce((a, b) => a + b, 0) / x.w.length;
+      return { t, da: x.da * 60000, a: (x.fine + 1) * 60000, min: durata, media, picco: x.picco,
+        kwh: media * durata / 60 / 1000 };
+    });
+  }
+
+  // Il disegnino della curva: le fasi si vedono prima ancora di leggerle.
+  _curvaHTML(sess) {
+    const prof = (sess && sess.prof) || [];
+    if (prof.length < 4) return "";
+    const max = Math.max.apply(null, prof.map(p => p.w)) || 1;
+    const t0 = prof[0].t, span = (prof[prof.length - 1].t - t0) || 1;
+    const punti = prof.map(p => (100 * (p.t - t0) / span).toFixed(1) + "," + (30 - 29 * p.w / max).toFixed(1)).join(" ");
+    return `<svg class="mc-curva" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points="${punti}" fill="none" stroke="currentColor" stroke-width="1"
+        vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+  }
+
+  _fasiHTML(sess) {
+    const f = this._fasi(sess);
+    if (!f.length) return `<div class="mc-fasi"><div class="mc-accvuoto">Non ci sono abbastanza letture per ricavare le fasi.</div></div>`;
+    return `<div class="mc-fasi">${this._curvaHTML(sess)}
+      ${f.map(x => `<div class="mc-fase">
+        <span class="mc-faseora">${this._ora(x.da)}</span>
+        <span class="mc-fasen">${this._esc(x.t)}</span>
+        <span class="mc-fased">${x.min} min</span>
+        <span class="mc-fasew">${Math.round(x.media)} W</span></div>`).join("")}
+      <div class="mc-fasenota">Fasi ricavate dai consumi, non dichiarate dall'apparecchio.</div></div>`;
   }
 
   _durata(ms) {
@@ -1064,11 +1193,14 @@ class MiniCard extends HTMLElement {
         <div class="mc-accvuoto">Nessuna accensione registrata ${etichetta === "Oggi" ? "oggi" : "in questo giorno"}.</div>`;
     }
     const totMs = s.reduce((a, x) => a + (x.a - x.da), 0);
-    const righe = s.map(x => `<div class="mc-acc">
+    const righe = s.map((x, i) => {
+      const aperto = this._cicloAperto === giorno + "|" + i;
+      return `<div class="mc-acc${x.prof && x.prof.length ? " apribile" : ""}${aperto ? " aperto" : ""}" data-ciclo="${i}">
       <div class="mc-accora">${this._ora(x.da)}<span>&rarr;</span>${this._ora(x.a)}</div>
       <div class="mc-accdur">${this._durata(x.a - x.da)}</div>
       <div class="mc-acckwh">${this._fmt(x.kwh)} kWh<small>picco ${Math.round(x.picco)} W</small></div>
-    </div>`).join("");
+    </div>${aperto ? this._fasiHTML(x) : ""}`;
+    }).join("");
     return `<div class="mc-accgruppo">Accensioni · ${this._esc(etichetta)}</div>
       <div class="mc-accsomma">${s.length === 1 ? "una accensione" : s.length + " accensioni"} · acceso ${this._durata(totMs)} in tutto</div>
       <div class="mc-acclista">${righe}</div>`;
@@ -1471,6 +1603,17 @@ class MiniCard extends HTMLElement {
       .mc-accsomma{font-size:12px;font-weight:700;color:var(--mc-ink);margin-bottom:9px}
       .mc-accvuoto{font-size:12px;color:var(--mc-muted);padding:6px 0 2px}
       .mc-acclista{display:flex;flex-direction:column;gap:6px}
+      .mc-acc.apribile{cursor:pointer}
+      .mc-acc.aperto{border-bottom-left-radius:0;border-bottom-right-radius:0}
+      .mc-fasi{margin:-4px 0 8px;padding:10px 12px 8px;border-radius:0 0 13px 13px;
+        background:rgba(255,255,255,.05);border:1px solid var(--mc-stroke);border-top:0}
+      .mc-curva{display:block;width:100%;height:34px;color:var(--mc-accent,#5aa9ff);opacity:.8;margin-bottom:8px}
+      .mc-fase{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0}
+      .mc-faseora{opacity:.6;font-variant-numeric:tabular-nums;min-width:38px}
+      .mc-fasen{flex:1;font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .mc-fased{font-weight:700;opacity:.85;min-width:44px;text-align:right}
+      .mc-fasew{font-weight:700;opacity:.6;min-width:48px;text-align:right}
+      .mc-fasenota{font-size:10.5px;opacity:.5;margin-top:6px}
       .mc-acc{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:13px;
         background:rgba(255,255,255,.04);border:1px solid var(--mc-stroke)}
       .mc-accora{flex:1;min-width:0;font-size:13px;font-weight:800;color:var(--mc-ink);
@@ -2407,6 +2550,12 @@ class MiniCard extends HTMLElement {
       this._ridisegnaFoglio = render;
       ov.querySelectorAll(".mc-tab").forEach(el => el.onclick = () => { period = el.dataset.p; selectedIdx = null; render(); });
       ov.querySelectorAll(".mc-col").forEach(el => el.onclick = () => { selectedIdx = parseInt(el.dataset.i, 10); render(); });
+      // Tocco su un'accensione: si apre e racconta le fasi di quel ciclo.
+      ov.querySelectorAll("[data-ciclo]").forEach(el => el.onclick = () => {
+        const k = selKey + "|" + el.dataset.ciclo;
+        this._cicloAperto = this._cicloAperto === k ? null : k;
+        render();
+      });
     };
     // Azioni condivise da entrambe le versioni del contenuto (con/senza
     // storico consumi): chiudi, accendi/spegni, apri informazioni native,
