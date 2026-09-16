@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.36.0";
+const MC_VERSION = "1.37.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1239,6 +1239,12 @@ class MiniCard extends HTMLElement {
       .mc-badge{display:flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;margin-top:3px;
         cursor:pointer;min-height:22px;box-sizing:border-box;
         font-size:10px;font-weight:800;letter-spacing:.2px;background:rgba(255,255,255,.06);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
+      .mc-durbox{display:flex;align-items:center;gap:10px}
+      .mc-durbox b{font-size:19px;font-weight:900;min-width:52px;text-align:center}
+      .mc-durbox b small{font-size:11px;font-weight:700;color:var(--mc-muted);margin-left:2px}
+      .mc-durbtn{width:34px;height:34px;border-radius:11px;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.07);
+        color:inherit;font:inherit;font-size:19px;font-weight:800;cursor:pointer;line-height:1}
+      .mc-durbtn:active{transform:scale(.94)}
       .mc-badge .dot{width:6px;height:6px;border-radius:50%;background:#5a6572;flex:0 0 auto}
       .mc-badge[data-on="1"]{background:rgba(56,224,138,.16);border-color:rgba(56,224,138,.45);color:var(--mc-c-ok,#8ff0b4)}
       .mc-card.lavora .mc-badge[data-on="1"]{animation:mc-blink 3s ease-in-out infinite}
@@ -1658,6 +1664,15 @@ class MiniCard extends HTMLElement {
   // del giorno, piu una condizione che accoppia "quale trigger e scattato" con
   // "che giorno e oggi". Cosi le azioni si scrivono una volta sola invece di
   // ripeterle sette volte.
+  // Il servizio che accende o spegne, dominio per dominio: "valve.turn_on"
+  // non esiste e l'orario programmato non avrebbe fatto niente.
+  _srvOnOff(dom, acceso) {
+    if (dom === "valve") return "valve." + (acceso ? "open_valve" : "close_valve");
+    if (dom === "cover") return "cover." + (acceso ? "open_cover" : "close_cover");
+    if (dom === "lock") return "lock." + (acceso ? "unlock" : "lock");
+    return dom + (acceso ? ".turn_on" : ".turn_off");
+  }
+
   _timerId(quale) {
     const slug = (this._cfg.switch || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase();
     return "mini_card_" + quale + "_" + slug;
@@ -1718,7 +1733,7 @@ class MiniCard extends HTMLElement {
       triggers: [{ trigger: "time", at: ora.length === 5 ? ora + ":00" : ora }],
       conditions: [],
       actions: [
-        { action: dom + (acceso ? ".turn_on" : ".turn_off"), target: { entity_id: this._cfg.switch } },
+        { action: this._srvOnOff(dom, acceso), target: { entity_id: this._cfg.switch } },
         // "this.entity_id" e il modo giusto per farle riferire a se stessa
         // senza indovinare il nome che HA le dara.
         { action: "automation.turn_off", target: { entity_id: "{{ this.entity_id }}" }, data: { stop_actions: false } },
@@ -1746,7 +1761,7 @@ class MiniCard extends HTMLElement {
         condition: "template",
         value_template: "{{ trigger.id == now().strftime('%a') | lower }}",
       }],
-      actions: [{ action: dom + (acceso ? ".turn_on" : ".turn_off"), target: { entity_id: this._cfg.switch } }],
+      actions: [{ action: this._srvOnOff(dom, acceso), target: { entity_id: this._cfg.switch } }],
     });
   }
 
@@ -1764,7 +1779,7 @@ class MiniCard extends HTMLElement {
       conditions: [],
       actions: [
         { delay: { minutes: minuti } },
-        { action: dom + ".turn_off", target: { entity_id: this._cfg.switch } },
+        { action: this._srvOnOff(dom, false), target: { entity_id: this._cfg.switch } },
         { action: "automation.turn_off", target: { entity_id: "{{ this.entity_id }}" }, data: { stop_actions: false } },
       ],
     });
@@ -1925,6 +1940,92 @@ class MiniCard extends HTMLElement {
     const v = this._cfg.icona || "auto";
     if (v === "piena" || v === "piccola") return v;
     return this._cfg.mode === "room" ? "piena" : "piccola";
+  }
+
+  // LA DURATA DELL'IRRIGAZIONE. L'irrigatore la espone come "number" sul suo
+  // dispositivo (minuti): si cambia da qui invece che dall'app Tuya.
+  _numeroDurata() {
+    const cfg = this._cfg, h = this._hass;
+    if (cfg.durata) return cfg.durata;
+    const reg = (h && h.entities) || {};
+    const dev = (reg[cfg.switch] || {}).device_id;
+    if (!dev) return "";
+    return Object.keys(reg).find(e => e.startsWith("number.") && reg[e].device_id === dev &&
+      h.states[e] && (/durat|duration|irrig|tempo/i.test(e) ||
+        ["min", "minuti", "s"].includes(String(h.states[e].attributes.unit_of_measurement || "").toLowerCase()))) || "";
+  }
+
+  _eValvola() { return String(this._cfg.switch || "").startsWith("valve."); }
+
+  // LO STORICO DELLE IRRIGAZIONI. Una valvola non consuma corrente, quindi
+  // non c'e un grafico dei watt da cui ricavare le accensioni: le partenze si
+  // leggono dallo stato (aperta -> chiusa) degli ultimi giorni.
+  async _caricaIrrigazioni(giorni) {
+    const h = this._hass, id = this._cfg.switch;
+    if (!h || !id) return;
+    const chiave = id + "|" + giorni;
+    if (this._irrPer === chiave && Date.now() - (this._irrTs || 0) < 120000) return;
+    this._irrPer = chiave;
+    this._irrTs = Date.now();
+    try {
+      const fine = new Date();
+      const inizio = new Date(fine.getTime() - giorni * 86400000);
+      const res = await h.callWS({
+        type: "history/history_during_period",
+        start_time: inizio.toISOString(), end_time: fine.toISOString(),
+        entity_ids: [id], minimal_response: true, no_attributes: true, significant_changes_only: false,
+      });
+      const punti = ((res && res[id]) || []).map(p => ({
+        t: p.lu !== undefined ? p.lu * 1000 : new Date(p.last_updated || p.last_changed || p.lc).getTime(),
+        s: p.s !== undefined ? p.s : p.state,
+      })).filter(p => isFinite(p.t)).sort((a, b) => a.t - b.t);
+      const giri = [];
+      let apertura = null;
+      punti.forEach(p => {
+        const aperto = ["open", "opening", "on"].includes(p.s);
+        if (aperto && apertura == null) apertura = p.t;
+        else if (!aperto && apertura != null) { giri.push({ da: apertura, a: p.t }); apertura = null; }
+      });
+      if (apertura != null) giri.push({ da: apertura, a: Date.now(), inCorso: true });
+      this._irrigazioni = giri.reverse();
+    } catch (e) {
+      this._irrigazioni = null;
+    }
+    if (this._ridisegnaFoglio) this._ridisegnaFoglio();
+  }
+
+  _irrigazioniHTML(giorni) {
+    const g = this._irrigazioni;
+    if (!g) return `<div class="mc-accgruppo">Irrigazioni</div>
+      <div class="mc-accvuoto">Cerco le irrigazioni degli ultimi ${giorni} giorni…</div>`;
+    if (!g.length) return `<div class="mc-accgruppo">Irrigazioni</div>
+      <div class="mc-accvuoto">Nessuna irrigazione negli ultimi ${giorni} giorni.</div>`;
+    const tot = g.reduce((a, x) => a + (x.a - x.da), 0);
+    const giorno = t => new Date(t).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" });
+    const righe = g.slice(0, 12).map(x => `<div class="mc-acc">
+      <div class="mc-accora">${this._ora(x.da)}<span>&rarr;</span>${x.inCorso ? "adesso" : this._ora(x.a)}</div>
+      <div class="mc-accdur">${this._durata(x.a - x.da)}</div>
+      <div class="mc-acckwh">${this._esc(giorno(x.da))}${x.inCorso ? "<small>sta irrigando</small>" : ""}</div>
+    </div>`).join("");
+    return `<div class="mc-accgruppo">Irrigazioni · ultimi ${giorni} giorni</div>
+      <div class="mc-accsomma">${g.length === 1 ? "una irrigazione" : g.length + " irrigazioni"} · ${this._durata(tot)} d'acqua in tutto</div>
+      <div class="mc-acclista">${righe}</div>`;
+  }
+
+  _durataHTML() {
+    const id = this._numeroDurata();
+    if (!id) return "";
+    const st = this._hass.states[id];
+    if (!st) return "";
+    const u = st.attributes.unit_of_measurement || "min";
+    const v = parseFloat(st.state);
+    return `<div class="mc-accgruppo">Quanto irriga</div>
+      <div class="mc-avgrow"><div>Durata di ogni irrigazione<small>la imposta il dispositivo, si chiude da solo</small></div>
+        <div class="mc-durbox">
+          <button class="mc-durbtn" data-dur="-">−</button>
+          <b>${isNaN(v) ? "–" : Math.round(v)}<small>${this._esc(u)}</small></b>
+          <button class="mc-durbtn" data-dur="+">+</button>
+        </div></div>`;
   }
 
   _separaBatteria() {
@@ -2239,6 +2340,29 @@ class MiniCard extends HTMLElement {
         ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
 
       if (!cfg.power) {
+        // Una valvola (l'irrigatore) non ha watt ma ha una storia: quando ha
+        // irrigato e per quanto, e la durata da cambiare senza l'app Tuya.
+        if (this._eValvola()) {
+          this._ridisegnaFoglio = render;
+          this._caricaIrrigazioni(7);
+          ov.innerHTML = `<div class="mc-modal">${heroHTML}
+            ${this._durataHTML()}
+            ${this._irrigazioniHTML(7)}</div>`;
+          wire();
+          ov.querySelectorAll("[data-dur]").forEach(b => b.onclick = () => {
+            const id = this._numeroDurata();
+            const st = id && this._hass.states[id];
+            if (!st) return;
+            const passo = parseFloat(st.attributes.step) || 1;
+            const min = st.attributes.min != null ? parseFloat(st.attributes.min) : 1;
+            const max = st.attributes.max != null ? parseFloat(st.attributes.max) : 999;
+            const v = parseFloat(st.state) || 0;
+            const nuovo = Math.min(max, Math.max(min, v + (b.dataset.dur === "+" ? passo : -passo)));
+            this._hass.callService("number", "set_value", { entity_id: id, value: nuovo });
+            setTimeout(render, 700);
+          });
+          return;
+        }
         ov.innerHTML = `<div class="mc-modal">${heroHTML}</div>`;
         wire();
         return;
