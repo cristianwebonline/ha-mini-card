@@ -5,12 +5,22 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.35.0";
+const MC_VERSION = "1.36.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
 
 const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+
+// Lo stato che vuol dire "acceso", dominio per dominio.
+const MC_STATI_ACCESI = {
+  valve: ["open", "opening"],
+  cover: ["open", "opening"],
+  lock: ["unlocked", "open", "opening"],
+  vacuum: ["cleaning", "returning"],
+  media_player: ["playing", "on", "paused", "buffering"],
+  fan: ["on"],
+};
 
 const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "", custom_icon_id: "", icona: "auto",
@@ -844,6 +854,18 @@ class MiniCard extends HTMLElement {
   static getConfigElement() { return document.createElement("mini-card-editor"); }
   static getStubConfig() { return JSON.parse(JSON.stringify(MC_DEFAULTS)); }
 
+  // Quando un comando e ACCESO. Il dominio decide: una valvola aperta dice
+  // "open", una serratura "unlocked", un aspirapolvere "cleaning". Prima si
+  // guardava solo "on" e gli irrigatori (valve) risultavano sempre spenti
+  // anche mentre stavano irrigando.
+  _acceso(st) {
+    if (!st) return false;
+    const dom = String(st.entity_id || "").split(".")[0];
+    if (["climate", "humidifier", "water_heater"].includes(dom)) return !["off", "unavailable", "unknown"].includes(st.state);
+    const acceso = MC_STATI_ACCESI[dom];
+    return acceso ? acceso.includes(st.state) : st.state === "on";
+  }
+
   _num(entity) {
     const s = this._hass && this._hass.states[entity];
     if (!s) return null;
@@ -1563,7 +1585,15 @@ class MiniCard extends HTMLElement {
 
   _toggle() {
     const id = this._cfg.switch;
-    if (id && this._hass.states[id]) this._hass.callService(id.split(".")[0], "toggle", { entity_id: id });
+    const st = id && this._hass.states[id];
+    if (!st) return;
+    const dom = id.split(".")[0];
+    // "toggle" non esiste per tutti: una serratura si sblocca o si blocca.
+    if (dom === "lock") {
+      this._hass.callService("lock", st.state === "locked" ? "unlock" : "lock", { entity_id: id });
+      return;
+    }
+    this._hass.callService(dom, "toggle", { entity_id: id });
   }
 
   // Il tocco che accende o spegne davvero. Con la conferma attiva (di serie)
@@ -1875,7 +1905,7 @@ class MiniCard extends HTMLElement {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
-    if (sw) return sw.state === "on";
+    if (sw) return this._acceso(sw);
     if (cfg.power) return this._consumaOra(p, parseFloat(cfg.soglia) || 10);
     return false;
   }
@@ -1897,6 +1927,29 @@ class MiniCard extends HTMLElement {
     return this._cfg.mode === "room" ? "piena" : "piccola";
   }
 
+  _separaBatteria() {
+    const cfg = this._cfg;
+    this._batteriaId = "";
+    if (cfg.power) {
+      const s = this._hass && this._hass.states[cfg.power];
+      const a = (s && s.attributes) || {};
+      if (s && (a.device_class === "battery" || a.unit_of_measurement === "%")) {
+        this._batteriaId = cfg.power;
+        cfg.power = "";   // solo nella copia che gira: la configurazione salvata non si tocca
+      }
+    }
+    // Un apparecchio a pile (gli irrigatori del giardino) la batteria ce
+    // l'ha e basta: se non e stata scelta, la si prende dal suo dispositivo.
+    if (!this._batteriaId && cfg.switch && this._hass && this._hass.entities) {
+      const reg = this._hass.entities;
+      const dev = (reg[cfg.switch] || {}).device_id;
+      if (dev) {
+        this._batteriaId = Object.keys(reg).find(e => e.startsWith("sensor.") && reg[e].device_id === dev &&
+          this._hass.states[e] && this._hass.states[e].attributes.device_class === "battery") || "";
+      }
+    }
+  }
+
   _stato() {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
@@ -1912,7 +1965,7 @@ class MiniCard extends HTMLElement {
       if (cfg.power) return this._consumaOra(p, soglia) ? "lavora" : "attesa";
       return "lavora";
     }
-    if (sw && sw.state !== "on") return "staccata";
+    if (sw && !this._acceso(sw)) return "staccata";
     if (cfg.power) {
       const consuma = this._consumaOra(p, soglia);
       if (sw) return consuma ? "lavora" : "attesa";
@@ -1942,6 +1995,11 @@ class MiniCard extends HTMLElement {
     const ic = (sw.attributes && sw.attributes.icon) || "";
     const pareLuce = /light|lightbulb|ceiling|lamp/i.test(ic)
       || /\bluce\b|lampad|faretto|plafoniera/i.test(sw.attributes.friendly_name || "");
+    if (dom === "valve") return dc === "water"
+      ? { on: "Acqua aperta", off: "Acqua chiusa", giu: "Non risponde" }
+      : { on: "Valvola aperta", off: "Valvola chiusa", giu: "Non risponde" };
+    if (dom === "cover") return { on: "Aperta", off: "Chiusa", giu: "Non risponde" };
+    if (dom === "lock") return { on: "Aperta", off: "Chiusa", giu: "Non risponde" };
     if (dom === "light" || pareLuce) return { on: "Luce accesa", off: "Luce spenta", giu: "Luce staccata" };
     if (dom === "input_boolean") return { on: "Comando attivo", off: "Comando spento", giu: "Comando spento" };
     if (dc === "switch") return { on: "Interruttore acceso", off: "Interruttore spento", giu: "Interruttore spento" };
@@ -2029,6 +2087,8 @@ class MiniCard extends HTMLElement {
     const t = this._num(cfg.temp), h = this._num(cfg.humidity);
     const todayKwh = (cfg.power && this._hist) ? (this._hist[this._dkey(new Date())] || 0) : null;
     const parts = [];
+    const bat = this._batteriaId ? this._num(this._batteriaId) : null;
+    if (bat != null) parts.push(`🔋 ${Math.round(bat)}%`);
     if (t != null) parts.push(`🌡️ ${this._fmt(t)}°C`);
     if (h != null) parts.push(`💧 ${Math.round(h)}%`);
     // Quando la stanza STA consumando la cosa che interessa e quanto tira
@@ -2055,6 +2115,7 @@ class MiniCard extends HTMLElement {
 
   _update() {
     if (!this._el) return;
+    this._separaBatteria();
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
