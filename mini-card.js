@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.46.1";
+const MC_VERSION = "1.47.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -106,6 +106,7 @@ const MC_DEFAULTS = {
   power: "",
   riferimento: "",          // kWh all'anno di targa (frigo/congelatore)
   tema: "auto",             // auto | chiaro | scuro
+  pausa_max: "",            // minuti di calma che chiudono un'accensione
   freddo_tipo: "auto",      // auto | frigo | congelatore | no
   soglia_media: 35,         // % sopra la sua media che fa scattare l'avviso
   soglia_targa: 1.5,        // quante volte la targa prima di gridare energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
@@ -1082,11 +1083,20 @@ class MiniCard extends HTMLElement {
   // dura piu di PAUSA_MAX il ciclo si considera finito davvero.
   _sessioniDa(pts) {
     const soglia = parseFloat(this._cfg.soglia) || 10;
-    // 12 minuti di calma = ciclo finito. Ma un frigo e un altro mestiere: li
-    // ogni fermata del compressore e una fermata vera, e accorparle farebbe
-    // sembrare che non si spenga mai.
-    const PAUSA_MAX = this._eFreddo() ? 60 * 1000 : 12 * 60 * 1000;
-    const MINIMA = 60 * 1000;           // sotto un minuto e un colpo di corrente
+    const strappi = this._impulsivo();
+    // Quanto silenzio chiude un'accensione. Una lavastoviglie si ferma dieci
+    // minuti fra riscaldamento e risciacquo e il ciclo non e finito; una
+    // pompa che si ferma, si e fermata davvero.
+    const PAUSA_MAX = parseFloat(this._cfg.pausa_max) > 0
+      ? parseFloat(this._cfg.pausa_max) * 60000
+      : (strappi ? 30 * 1000 : 12 * 60 * 1000);
+    // Sotto questa durata e un colpo di corrente e non si conta. Ma
+    // un'autoclave parte per trenta secondi: con un minuto sparivano tutte.
+    const MINIMA = strappi ? 8 * 1000 : 60 * 1000;
+    // Fin dove si allunga un'accensione dopo l'ultima lettura sopra soglia.
+    // Un sensore che scrive solo quando cambia puo tacere per un quarto d'ora:
+    // senza questo tetto, un avvio di trenta secondi diventava "17 minuti".
+    const GRAZIA = 90 * 1000;
     const MAX_GAP_S = 2 * 3600;
     const out = {};
     let cur = null;
@@ -1110,8 +1120,14 @@ class MiniCard extends HTMLElement {
       const dtS = succ ? Math.min(MAX_GAP_S, (succ.t - p.t) / 1000) : 0;
       const sopra = p.w > soglia;
       if (sopra) {
+        // Un'accensione nuova dopo un lungo silenzio chiude quella prima.
+        // Senza questo, un sensore che scrive solo quando cambia (manda 680,
+        // poi 0, poi tace fino alla volta dopo) non produceva mai la lettura
+        // "bassa e tardiva" che chiudeva il ciclo: quattro avvii da mezzo
+        // minuto diventavano una sola accensione lunga quattordici ore.
+        if (cur && p.t - cur.ultimoSopra > PAUSA_MAX) chiudi();
         if (!cur) cur = { da: p.t, kwh: 0, picco: 0, prof: [] };
-        cur.ultimoSopra = succ ? succ.t : p.t;
+        cur.ultimoSopra = succ ? Math.min(succ.t, p.t + GRAZIA) : p.t;
         cur.picco = Math.max(cur.picco, p.w);
       } else if (cur && p.t - cur.ultimoSopra > PAUSA_MAX) {
         chiudi();
@@ -1236,6 +1252,16 @@ class MiniCard extends HTMLElement {
   }
 
   _eFreddo() { return !!this._tipoFreddo(); }
+
+  // A STRAPPI. Una pompa o un compressore non fanno "cicli" con pause dentro:
+  // fanno tanti avvii brevissimi. Per loro un minuto di soglia minima
+  // cancellerebbe quasi tutte le accensioni, e dodici minuti di pausa le
+  // incollerebbe tutte insieme in una sola.
+  _impulsivo() {
+    if (this._eFreddo()) return true;
+    const n = [this._cfg.name, this._cfg.switch, this._cfg.power].filter(Boolean).join(" ").toLowerCase();
+    return /autoclave|pompa|pump|compress|caldaia|boiler/.test(n);
+  }
 
   // IL CONTROLLO DEL FREDDO. Un frigo non ha cicli: sta acceso e basta. Le
   // domande giuste sono tre: consuma piu di come faceva LUI le settimane
@@ -1465,6 +1491,16 @@ class MiniCard extends HTMLElement {
           ? `, e il giorno piu carico e stato il ${this._esc(this._dataLunga(peg.k))} con ${this._fmt(peg.v)} kWh` : ""}.
         ${ordinate.length ? this._oreHTML(d.mediaOra) : ""}`;
     }
+    if (intento === "tempo") {
+      const acc = await this._accensioniPeriodo(p);
+      if (acc === "troppo") return `Su un periodo cosi lungo non riesco a sommare i minuti uno per uno:
+        chiedimelo su una settimana o su un giorno preciso.`;
+      if (!acc || !acc.length) return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} non ho lavorato.`;
+      const durata = acc.reduce((a, x) => a + (x.a - x.da), 0);
+      return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} ho lavorato <b>${this._durata(durata)}</b> in tutto,
+        divisi in ${acc.length === 1 ? "una accensione" : acc.length + " accensioni"},
+        e mi sono mangiato ${this._fmt(d.tot)} kWh.`;
+    }
     if (intento === "accensioni") {
       const acc = await this._accensioniPeriodo(p);
       if (acc === "troppo") return `Su un periodo cosi lungo non riesco a contarle una per una:
@@ -1474,10 +1510,14 @@ class MiniCard extends HTMLElement {
       const durata = acc.reduce((a, x) => a + (x.a - x.da), 0);
       const piuLunga = acc.slice().sort((a, b) => (b.a - b.da) - (a.a - a.da))[0];
       const quante = acc.length === 1 ? "una volta sola" : acc.length + " volte";
+      if (acc.length === 1) {
+        return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} mi sono acceso <b>una volta sola</b>,
+          alle ${this._ora(acc[0].da)}, per ${this._durata(durata)}.`;
+      }
       return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} mi sono acceso <b>${quante}</b>,
-        per ${this._durata(durata)} in tutto. La prima alle ${this._ora(acc[0].da)},
-        l'ultima alle ${this._ora(acc[acc.length - 1].da)}${acc.length > 1
-          ? `; la piu lunga e durata ${this._durata(piuLunga.a - piuLunga.da)}` : ""}.`;
+        per ${this._durata(durata)} in tutto: la prima alle ${this._ora(acc[0].da)},
+        l'ultima alle ${this._ora(acc[acc.length - 1].da)}, la piu lunga
+        ${this._durata(piuLunga.a - piuLunga.da)}.`;
     }
     if (intento === "peggiore") {
       if (!d.giorni.length) return "Non ho giorni da confrontare in quel periodo.";
@@ -1556,7 +1596,8 @@ class MiniCard extends HTMLElement {
       if (m >= 0) periodo = "m" + m;
     }
     let intento = null;
-    if (/perche|perché|come mai/.test(t)) intento = "perche";
+    if (/quanto hai lavorato|quanto hai funzionato|quanto sei stato acceso|quanto tempo/.test(t)) intento = "tempo";
+    else if (/perche|perché|come mai/.test(t)) intento = "perche";
     else if (/accension|quante volte|quanti cicli|partenz|avvii|si e acceso/.test(t)) intento = "accensioni";
     else if (/che ?or|quali ?or|\bore\b|orari|quando consum|fascia/.test(t)) intento = "ore";
     else if (/peggior|massim|record|giorno piu|giorno più/.test(t)) intento = "peggiore";
@@ -3644,6 +3685,9 @@ class MiniCardEditor extends HTMLElement {
             <option value="quadrata"${c.taglia === "quadrata" ? " selected" : ""}>Quadrata</option>
           </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
+        <div class="fld"><label>Pausa che chiude un'accensione (minuti)</label>
+          <span class="h">Vuoto: 12 minuti per gli elettrodomestici a ciclo, mezzo minuto per pompe e compressori.</span>
+          <input type="number" min="0" max="120" step="0.5" id="f_pausa" placeholder="automatico" value="${c.pausa_max || ""}"></div>
         <div class="fld"><label>Colori</label>
           <span class="h">Di suo segue il giorno e la notte del pannello che la ospita.</span>
           <select id="f_tema">
@@ -3747,6 +3791,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_tema", "change", e => this._set("tema", e.target.value));
+    on("#f_pausa", "change", e => this._set("pausa_max", parseFloat(e.target.value) || ""));
     on("#f_rif", "change", e => this._set("riferimento", parseInt(e.target.value) || ""));
     on("#f_freddotipo", "change", e => this._set("freddo_tipo", e.target.value));
     on("#f_sogliamedia", "change", e => this._set("soglia_media", parseInt(e.target.value) || 35));
