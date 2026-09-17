@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.43.0";
+const MC_VERSION = "1.44.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13,6 +13,48 @@ console.info(`%c MINI-CARD %c v${MC_VERSION} `,
 const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 // Lo stato che vuol dire "acceso", dominio per dominio.
+const MC_MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+  "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+
+// Da "2026-08-20" alla mezzanotte di quel giorno, ora locale.
+function MC_data(iso) {
+  const p = String(iso).split("-").map(Number);
+  return new Date(p[0], p[1] - 1, p[2]);
+}
+
+// LEGGERE UNA DATA SCRITTA A MANO. Riconosce "20 agosto", "il 20 di agosto",
+// "20/08", "20-08-2025" e, dentro un intervallo, anche il solo "10" che prende
+// mese e anno dall'altro estremo ("dal 10 al 20 agosto").
+// Restituisce "AAAA-MM-GG", oppure null se non c'e nessuna data.
+// Senza anno prende quello in corso, e se la data cadrebbe nel futuro prende
+// l'anno prima: a settembre "20 dicembre" vuol dire il dicembre passato.
+function MC_leggiData(testo, riferimento) {
+  const t = " " + String(testo || "").toLowerCase() + " ";
+  const oggi = new Date();
+  let g = null, m = null, a = null;
+  let x = t.match(/\b(\d{1,2})\s*[\/\-.]\s*(\d{1,2})(?:\s*[\/\-.]\s*(\d{2,4}))?\b/);
+  if (x) {
+    g = +x[1]; m = +x[2] - 1;
+    if (x[3]) a = +x[3] < 100 ? 2000 + +x[3] : +x[3];
+  } else {
+    const nome = MC_MESI.findIndex(n => t.includes(n));
+    const gx = t.match(/\b(\d{1,2})\b(?!\s*(?:kwh|w\b|%|ore|giorni))/);
+    if (nome >= 0 && gx) { g = +gx[1]; m = nome; }
+    else if (gx && riferimento) { g = +gx[1]; const r = riferimento.split("-"); a = +r[0]; m = +r[1] - 1; }
+    else return null;
+    const ax = t.match(/\b(20\d{2})\b/);
+    if (ax) a = +ax[1];
+  }
+  if (!(g >= 1 && g <= 31) || !(m >= 0 && m <= 11)) return null;
+  if (a == null) {
+    a = oggi.getFullYear();
+    if (new Date(a, m, g) > oggi) a--;
+  }
+  const d = new Date(a, m, g);
+  if (d.getDate() !== g || d.getMonth() !== m) return null;   // 31 febbraio e simili
+  return a + "-" + String(m + 1).padStart(2, "0") + "-" + String(g).padStart(2, "0");
+}
+
 const MC_STATI_ACCESI = {
   valve: ["open", "opening"],
   cover: ["open", "opening"],
@@ -1279,6 +1321,7 @@ class MiniCard extends HTMLElement {
   // ore, i giorni, il giorno peggiore e il confronto con il periodo prima.
   // =========================================================================
   _periodo(nome) {
+    // (MC_data e in fondo al file, accanto al lettore delle domande)
     const ora = new Date();
     const g0 = new Date(ora.getFullYear(), ora.getMonth(), ora.getDate());
     const meno = n => new Date(g0.getTime() - n * 86400000);
@@ -1295,6 +1338,21 @@ class MiniCard extends HTMLElement {
       const anno = m > ora.getMonth() ? ora.getFullYear() - 1 : ora.getFullYear();
       const d = new Date(anno, m, 1), f = new Date(anno, m + 1, 1);
       return { da: d, a: f > ora ? ora : f, t: d.toLocaleDateString("it-IT", { month: "long" }), giorni: Math.round(((f > ora ? ora : f) - d) / 86400000) };
+    }
+    if (nome.indexOf("g:") === 0) {                 // un giorno solo
+      const d = MC_data(nome.slice(2));
+      const f = new Date(d.getTime() + 86400000);
+      return { da: d, a: f > ora ? ora : f, giorni: 1,
+        t: "il " + d.toLocaleDateString("it-IT", { day: "numeric", month: "long" }) };
+    }
+    if (nome.indexOf("r:") === 0) {                 // dal ... al ...
+      const pezzi = nome.slice(2).split("|");
+      const d = MC_data(pezzi[0]);
+      const f = new Date(MC_data(pezzi[1]).getTime() + 86400000);   // il giorno finale e compreso
+      const fine = f > ora ? ora : f;
+      const opz = { day: "numeric", month: "long" };
+      return { da: d, a: fine, giorni: Math.max(1, Math.round((fine - d) / 86400000)),
+        t: "dal " + d.toLocaleDateString("it-IT", opz) + " al " + new Date(f.getTime() - 86400000).toLocaleDateString("it-IT", opz) };
     }
     const n = parseInt(nome, 10) || 7;
     return { da: meno(n), a: ora, t: "negli ultimi " + n + " giorni", giorni: n };
@@ -1422,11 +1480,25 @@ class MiniCard extends HTMLElement {
   // cercano le parole che contano, e se non si capisce lo si dice.
   _capisci(testo) {
     const t = " " + String(testo || "").toLowerCase().trim() + " ";
-    const mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-      "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+    const mesi = MC_MESI;
     let periodo = null;
+    // Prima gli intervalli e i giorni precisi: sono i piu specifici, e se
+    // cercassi "agosto" per primo "il 20 di agosto" finirebbe su tutto agosto.
+    // La seconda parte si prende tutta la coda: in "dal 10 al 20 agosto" il
+    // mese sta DOPO il secondo numero, e tagliando corto si perdeva.
+    const intervallo = t.match(/\bdal\s+(.{1,40}?)\s+al\s+(.{1,40})/);
+    if (intervallo) {
+      const b = MC_leggiData(intervallo[2], null);
+      const a1 = MC_leggiData(intervallo[1], b);
+      if (a1 && b) periodo = "r:" + a1 + "|" + b;
+    }
+    if (!periodo) {
+      const g1 = MC_leggiData(t, null);
+      if (g1) periodo = "g:" + g1;
+    }
     const gg = t.match(/ultimi?\s+(\d{1,3})\s*giorni/);
-    if (gg) periodo = gg[1];
+    if (!periodo && gg) periodo = gg[1];
+    else if (periodo) { /* gia trovato sopra */ }
     else if (/\boggi\b/.test(t)) periodo = "oggi";
     else if (/\bieri\b/.test(t)) periodo = "ieri";
     else if (/mese scorso|scorso mese/.test(t)) periodo = "mesescorso";
@@ -1469,7 +1541,7 @@ class MiniCard extends HTMLElement {
         Posso guardare indietro fino a dove arriva la memoria di Home Assistant.</div>`}</div>
       <div class="mc-chips">${dom.map(([k, t]) => `<button type="button" class="mc-chip" data-dom="${k}">${t}</button>`).join("")}</div>
       <div class="mc-riga-chiedi">
-        <input id="mc_chiedi" placeholder="oppure scrivi: quanto hai consumato ad agosto?" autocomplete="off">
+        <input id="mc_chiedi" placeholder="scrivi: quanto hai consumato il 20 agosto?" autocomplete="off">
         <button type="button" class="mc-chip sel" data-invia>Chiedi</button>
       </div>
     </div>`;
@@ -1842,7 +1914,7 @@ class MiniCard extends HTMLElement {
       .mc-scrim.on .mc-modal{transform:none}
       /* Il foglio di conferma: nasce visibile (niente classe "on" da
          accendere) e sta al centro, non in fondo come il popup grande. */
-      .mc-scrim.mc-conf{opacity:1;pointer-events:auto;align-items:center;padding:22px;z-index:12}
+      .mc-scrim.mc-conf{opacity:1;pointer-events:auto;align-items:center;padding:22px;z-index:140}
       .mc-conferma{width:100%;max-width:340px;position:relative;overflow:hidden;
         background:linear-gradient(170deg,#232833,#161a21);
         border:1px solid rgba(255,255,255,.14);border-radius:26px;padding:26px 22px 20px;
@@ -2091,8 +2163,9 @@ class MiniCard extends HTMLElement {
   // passa prima dal foglio; "!== false" perche le card create prima che
   // l'opzione esistesse non hanno il campo salvato e devono comportarsi
   // come le nuove.
-  _toggleChiesto() {
-    if (this._cfg.conferma_accensione === false) { this._toggle(); return; }
+  _toggleChiesto(dopo) {
+    const fatto = () => { this._toggle(); if (dopo) dopo(); };
+    if (this._cfg.conferma_accensione === false) { fatto(); return; }
     const acceso = this._isOn();
     const nome = this._cfg.name || "questo dispositivo";
     // Il consumo di adesso e la ragione per cui uno esita: se sta lavorando,
@@ -2106,7 +2179,7 @@ class MiniCard extends HTMLElement {
       sotto,
       azione: acceso ? "Spegni" : "Accendi",
       acceso,
-    }, () => this._toggle());
+    }, fatto);
   }
 
   // Agganciato a ".mc" e non alla tessera: .mc-card ha container-type, che
@@ -2884,7 +2957,7 @@ class MiniCard extends HTMLElement {
           if (!c.intento && !c.periodo) {
             this._chat = this._chat || [];
             this._chat.push({ chi: "io", t: testo });
-            this._chat.push({ chi: "lui", t: "Questa non l'ho capita. Prova con uno dei tasti qui sotto, oppure scrivi per esempio \"quanto hai consumato a luglio\" o \"in che ore consumi di piu\"." });
+            this._chat.push({ chi: "lui", t: "Questa non l'ho capita. Prova con uno dei tasti qui sotto, oppure scrivi per esempio \"quanto hai consumato il 20 agosto\", \"dal 10 al 20 agosto\" o \"in che ore consumi di piu\"." });
             render();
             return;
           }
@@ -2949,17 +3022,26 @@ class MiniCard extends HTMLElement {
     // Azioni condivise da entrambe le versioni del contenuto (con/senza
     // storico consumi): chiudi, accendi/spegni, apri informazioni native,
     // naviga alla vista collegata.
+    // Chiudere vuol dire ricominciare: una chat vecchia riaperta domani non
+    // dice niente, e i dati del periodo vanno riletti.
+    const azzera = () => {
+      vista = "storico";
+      this._chat = [];
+      this._perNome = null;
+      this._cache = null;
+    };
     const wire = () => {
-      const close = () => ov.classList.remove("on");
+      const close = () => { ov.classList.remove("on"); azzera(); };
       const q = sel => ov.querySelector(sel);
       if (q('[data-act="close"]')) q('[data-act="close"]').onclick = close;
-      if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () => { this._toggleChiesto(); setTimeout(render, 900); };
+      if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
+        this._toggleChiesto(() => setTimeout(render, 900));
       if (q('[data-act="info"]')) q('[data-act="info"]').onclick = () => { close(); this._openMoreInfo(); };
       if (q('[data-act="nav"]')) q('[data-act="nav"]').onclick = () => { close(); this._navigate(cfg.path); };
     };
     render();
     requestAnimationFrame(() => ov.classList.add("on"));
-    ov.onclick = e => { if (e.target === ov) ov.classList.remove("on"); };
+    ov.onclick = e => { if (e.target === ov) { ov.classList.remove("on"); azzera(); } };
   }
 }
 customElements.define("mini-card", MiniCard);
