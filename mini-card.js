@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.44.1";
+const MC_VERSION = "1.45.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -105,6 +105,7 @@ const MC_DEFAULTS = {
   name: "Dispositivo", icon_type: "generic", custom_icon_svg: "", custom_icon_id: "", icona: "auto",
   power: "",
   riferimento: "",          // kWh all'anno di targa (frigo/congelatore)
+  tema: "auto",             // auto | chiaro | scuro
   freddo_tipo: "auto",      // auto | frigo | congelatore | no
   soglia_media: 35,         // % sopra la sua media che fa scattare l'avviso
   soglia_targa: 1.5,        // quante volte la targa prima di gridare energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
@@ -1547,6 +1548,19 @@ class MiniCard extends HTMLElement {
     </div>`;
   }
 
+  // GIORNO O NOTTE. Lo dice chi ospita la card: il pannello Faber Home mette
+  // "chiaro" su di se quando e giorno, e la card si adegua. Chi la usa da
+  // sola puo forzarla con il campo "tema" nella scheda.
+  _aggiornaTema() {
+    const root = this.querySelector(".mc");
+    if (!root) return;
+    const scelto = this._cfg.tema || "auto";
+    const chiaro = scelto === "chiaro" ? true
+      : scelto === "scuro" ? false
+      : !!(this.closest(".fh-app.chiaro") || this.classList.contains("chiaro"));
+    root.classList.toggle("chiaro", chiaro);
+  }
+
   _durata(ms) {
     const min = Math.round(ms / 60000);
     if (min < 60) return min + " min";
@@ -1768,6 +1782,40 @@ class MiniCard extends HTMLElement {
       .mc-card.lavora .mc-badge[data-on="1"]{animation:mc-blink 3s ease-in-out infinite}
       .mc-badge[data-on="1"] .dot{background:#38e08a;box-shadow:0 0 5px #38e08a}
       .mc-badge[data-on="0"] .dot{background:#5a6572}
+      /* ======================= MODALITA GIORNO =======================
+         La card e nata solo scura, perche viveva su pannelli scuri. Dentro
+         Faber Home invece il tema cambia con il sole, e il foglio restava
+         notte in pieno giorno. Qui c'e la versione chiara: cambia i colori
+         di base e, dove il codice usa velature bianche (che su fondo chiaro
+         sparirebbero), le ribalta in velature nere.
+         Si attiva con la classe "chiaro" sulla radice della card.        */
+      .mc.chiaro{--mc-panel:rgba(255,255,255,.9);--mc-stroke:rgba(15,30,45,.14);
+        --mc-ink:#16202a;--mc-muted:#5c6b78}
+      .mc.chiaro .mc-scrim{background:rgba(228,235,242,.66)}
+      .mc.chiaro .mc-modal{background:#f4f7fa;border-color:rgba(15,30,45,.14);
+        box-shadow:0 -10px 40px rgba(15,30,45,.18)}
+      .mc.chiaro .mc-sheet-handle{background:rgba(15,30,45,.22)}
+      .mc.chiaro .mc-x,
+      .mc.chiaro .mc-chip,
+      .mc.chiaro .mc-tab,
+      .mc.chiaro .mc-avgrow,
+      .mc.chiaro .mc-acc,
+      .mc.chiaro .mc-fasi,
+      .mc.chiaro .mc-freddo,
+      .mc.chiaro .mc-durbtn,
+      .mc.chiaro .mc-chiedibtn,
+      .mc.chiaro .mc-riga-chiedi input,
+      .mc.chiaro .mc-pill{background:rgba(15,30,45,.055);color:var(--mc-ink)}
+      .mc.chiaro .mc-sua{background:rgba(15,30,45,.06);color:var(--mc-ink)}
+      .mc.chiaro .mc-mia{background:rgba(52,140,205,.18);color:var(--mc-ink)}
+      .mc.chiaro .mc-chip.sel{background:rgba(52,140,205,.2);border-color:rgba(52,140,205,.45)}
+      .mc.chiaro .mc-tab.sel{background:linear-gradient(135deg,rgba(52,140,205,.24),rgba(52,140,205,.12))}
+      .mc.chiaro .mc-chiedibtn{background:rgba(52,140,205,.13)}
+      .mc.chiaro .mc-hero-icon .mc-svg{filter:drop-shadow(0 10px 18px rgba(15,30,45,.22))}
+      .mc.chiaro .mc-conferma{background:#f4f7fa;color:var(--mc-ink)}
+      .mc.chiaro .mc-cbtn{background:rgba(15,30,45,.06);color:var(--mc-ink)}
+      .mc.chiaro .mc-scrim.mc-conf{background:rgba(228,235,242,.72)}
+
       @keyframes mc-blink{0%,100%{opacity:1}50%{opacity:.55}}
       /* Acceso: la velatura verde va SOPRA il pannello, non al suo posto.
          Sostituendo lo sfondo la card restava all'8% di opacita e su un fondo
@@ -2774,6 +2822,7 @@ class MiniCard extends HTMLElement {
 
   _update() {
     if (!this._el) return;
+    this._aggiornaTema();
     this._separaBatteria();
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
@@ -3538,6 +3587,13 @@ class MiniCardEditor extends HTMLElement {
             <option value="quadrata"${c.taglia === "quadrata" ? " selected" : ""}>Quadrata</option>
           </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
+        <div class="fld"><label>Colori</label>
+          <span class="h">Di suo segue il giorno e la notte del pannello che la ospita.</span>
+          <select id="f_tema">
+            <option value="auto"${(c.tema || "auto") === "auto" ? " selected" : ""}>Segui il pannello</option>
+            <option value="scuro"${c.tema === "scuro" ? " selected" : ""}>Sempre scura</option>
+            <option value="chiaro"${c.tema === "chiaro" ? " selected" : ""}>Sempre chiara</option>
+          </select></div>
         <div class="fld"><label>Controllo consumo (frigo e congelatore)</label>
           <span class="h">Confronta l'apparecchio con se stesso e con la sua targa. Cambiando frigo o congelatore basta aggiornare questi quattro campi.</span>
           <select id="f_freddotipo">
@@ -3633,6 +3689,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_taglia", "change", e => this._set("taglia", e.target.value));
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
+    on("#f_tema", "change", e => this._set("tema", e.target.value));
     on("#f_rif", "change", e => this._set("riferimento", parseInt(e.target.value) || ""));
     on("#f_freddotipo", "change", e => this._set("freddo_tipo", e.target.value));
     on("#f_sogliamedia", "change", e => this._set("soglia_media", parseInt(e.target.value) || 35));
