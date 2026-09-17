@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.47.1";
+const MC_VERSION = "1.49.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13,6 +13,14 @@ console.info(`%c MINI-CARD %c v${MC_VERSION} `,
 const WD = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
 // Lo stato che vuol dire "acceso", dominio per dominio.
+// Le fasce della giornata, per domande come "quanto consumi di notte".
+const MC_FASCE = {
+  notte: { da: 0, a: 6, t: "di notte" },
+  mattina: { da: 6, a: 12, t: "la mattina" },
+  pomeriggio: { da: 12, a: 18, t: "il pomeriggio" },
+  sera: { da: 18, a: 24, t: "di sera" },
+};
+
 const MC_MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
   "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 
@@ -107,6 +115,7 @@ const MC_DEFAULTS = {
   riferimento: "",          // kWh all'anno di targa (frigo/congelatore)
   tema: "auto",             // auto | chiaro | scuro
   pausa_max: "",            // minuti di calma che chiudono un'accensione
+  agente: "",               // conversation.* per le domande libere
   freddo_tipo: "auto",      // auto | frigo | congelatore | no
   soglia_media: 35,         // % sopra la sua media che fa scattare l'avviso
   soglia_targa: 1.5,        // quante volte la targa prima di gridare energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
@@ -1491,6 +1500,7 @@ class MiniCard extends HTMLElement {
           ? `, e il giorno piu carico e stato il ${this._esc(this._dataLunga(peg.k))} con ${this._fmt(peg.v)} kWh` : ""}.
         ${ordinate.length ? this._oreHTML(d.mediaOra) : ""}`;
     }
+    if (intento === "composta") return this._rispostaComposta(this._q || { metrica: "energia" }, d);
     if (intento === "tempo") {
       const acc = await this._accensioniPeriodo(p);
       if (acc === "troppo") return `Su un periodo cosi lungo non riesco a sommare i minuti uno per uno:
@@ -1563,8 +1573,131 @@ class MiniCard extends HTMLElement {
       ${d.nGiorni === 1 ? "giorno" : "giorni"}.`;
   }
 
+  // La scheda dei fatti che si consegna all'assistente: tutto quello che la
+  // card sa del periodo, in poche righe. Se un numero non e qui, l'assistente
+  // non deve tirarlo fuori dal cappello.
+  async _scheda(nomePeriodo) {
+    const d = await this._dati(nomePeriodo);
+    if (!d) return null;
+    const prezzo = parseFloat(this._cfg.prezzo_kwh) || 0;
+    const media = d.nGiorni ? d.tot / d.nGiorni : 0;
+    const ordinate = d.mediaOra.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v).filter(x => x.v > 0);
+    const giorni = d.giorni.slice().sort((a, b) => b.v - a.v);
+    const righe = [
+      "apparecchio: " + this._nomeSuo(),
+      "periodo: " + d.p.t + " (" + d.nGiorni + (d.nGiorni === 1 ? " giorno" : " giorni") + ")",
+      "consumo totale: " + this._fmt(d.tot) + " kWh",
+      "costo: " + (d.tot * prezzo).toFixed(2) + " euro (" + prezzo.toFixed(2) + " euro/kWh)",
+      "media al giorno: " + this._fmt(media) + " kWh",
+      "proiezione mensile: " + this._fmt(media * 30) + " kWh",
+      "consumo per ora del giorno (0-23, kWh): " + d.mediaOra.map(v => v.toFixed(3)).join(","),
+      "ore di punta: " + (ordinate.slice(0, 3).map(x => x.i + ":00").join(", ") || "nessuna"),
+      "giorni piu carichi: " + (giorni.slice(0, 3).map(x => x.k + " = " + this._fmt(x.v) + " kWh").join("; ") || "nessuno"),
+      "giorni piu leggeri: " + (giorni.slice(-3).reverse().map(x => x.k + " = " + this._fmt(x.v) + " kWh").join("; ") || "nessuno"),
+    ];
+    const acc = await this._accensioniPeriodo(d.p);
+    if (Array.isArray(acc)) {
+      const dur = acc.reduce((a, x) => a + (x.a - x.da), 0);
+      righe.push("accensioni: " + acc.length + ", per " + Math.round(dur / 60000) + " minuti in tutto");
+      if (acc.length) righe.push("prima accensione: " + this._ora(acc[0].da) + ", ultima: " + this._ora(acc[acc.length - 1].da));
+    }
+    return righe.join("\n");
+  }
+
+  // La domanda va all'assistente scelto nella scheda. Torna null se non c'e
+  // nessun assistente o se non risponde: in quel caso parla il lettore locale.
+  async _chiediAssistente(testo, nomePeriodo) {
+    const ag = this._cfg.agente;
+    const h = this._hass;
+    if (!ag || !h) return null;
+    const fatti = await this._scheda(nomePeriodo);
+    if (!fatti) return null;
+    const prompt = [
+      "Sei " + this._nomeSuo() + ", un apparecchio di casa che parla in prima persona.",
+      "Rispondi in italiano, al massimo due frasi, tono semplice.",
+      "Usa SOLO i dati qui sotto. Se la risposta non c'e nei dati, dillo chiaramente",
+      "e non inventare nessun numero.",
+      "",
+      "DATI:",
+      fatti,
+      "",
+      "DOMANDA: " + testo,
+    ].join("\n");
+    try {
+      const res = await h.callWS({ type: "conversation/process", text: prompt, agent_id: ag });
+      const t = res && res.response && res.response.speech && res.response.speech.plain
+        && res.response.speech.plain.speech;
+      return (t && String(t).trim()) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Capire una domanda scritta a mano. Niente intelligenza artificiale: si
   // cercano le parole che contano, e se non si capisce lo si dice.
+  // Da una domanda scomposta a una risposta. Le tre dimensioni si combinano:
+  // "quanto ho speso di notte la settimana scorsa" e costo + fascia + periodo.
+  _rispostaComposta(q, d) {
+    const p = d.p;
+    const prezzo = parseFloat(this._cfg.prezzo_kwh) || 0;
+    const f = q.fascia ? MC_FASCE[q.fascia] : null;
+    // L'energia della fascia: le ore di quella parte di giornata, sommate.
+    let tot = d.tot;
+    if (f) {
+      tot = 0;
+      for (let h = f.da; h < f.a; h++) tot += d.perOra[h];
+    }
+    const quando = (p.t + (f ? " " + f.t : ""));
+    const su = d.nGiorni + (d.nGiorni === 1 ? " giorno" : " giorni");
+    const testa = quando.charAt(0).toUpperCase() + quando.slice(1);
+    const giorni = d.giorni.slice().sort((a, b) => b.v - a.v);
+
+    if (q.su === "ora" && !q.aggr) {
+      const ord = d.mediaOra.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v).filter(x => x.v > 0);
+      if (!ord.length) return `${testa} non ho mai lavorato.`;
+      const top = ord.slice(0, 3).map(x => `<b>${String(x.i).padStart(2, "0")}:00</b> (${this._fmt(x.v)} kWh)`);
+      return `Lavoro soprattutto verso le ${top.join(", ")}. Il mio profilo di una giornata tipo ${p.t}:
+        ${this._oreHTML(d.mediaOra)}`;
+    }
+    if (q.aggr === "massimo" || q.aggr === "minimo") {
+      // Il massimo puo essere del giorno o dell'ora: dipende da cosa chiedi.
+      if (q.su === "ora") {
+        const ord = d.mediaOra.map((v, i) => ({ i, v })).sort((a, b) => q.aggr === "massimo" ? b.v - a.v : a.v - b.v);
+        const x = ord.filter(y => q.aggr === "massimo" ? y.v > 0 : true)[0];
+        if (!x) return `${testa} non ho lavorato.`;
+        return `L'ora in cui consumo ${q.aggr === "massimo" ? "di piu" : "di meno"} ${quando}
+          sono le <b>${String(x.i).padStart(2, "0")}:00</b>, con ${this._fmt(x.v)} kWh di media.
+          ${this._oreHTML(d.mediaOra)}`;
+      }
+      const x = q.aggr === "massimo" ? giorni[0] : giorni[giorni.length - 1];
+      if (!x) return `${testa} non ho giorni da confrontare.`;
+      const v = q.metrica === "costo" ? (x.v * prezzo).toFixed(2) + " euro" : this._fmt(x.v) + " kWh";
+      return `Il giorno in cui ho ${q.aggr === "massimo" ? "consumato di piu" : "consumato di meno"}
+        ${p.t} e stato <b>${this._esc(this._dataLunga(x.k))}</b>: ${v}.`;
+    }
+
+    if (q.aggr === "media") {
+      const m = d.nGiorni ? tot / d.nGiorni : 0;
+      if (q.metrica === "costo") {
+        return `${testa} spendo in media <b>${(m * prezzo).toFixed(2).replace(".", ",")} euro al giorno</b>
+          (${this._fmt(m)} kWh), su ${su}.`;
+      }
+      return `${testa} consumo in media <b>${this._fmt(m)} kWh al giorno</b>, su ${su}.`;
+    }
+
+    if (q.metrica === "costo") {
+      const m = d.nGiorni ? tot / d.nGiorni : 0;
+      return `${testa} ti sono costato <b>${(tot * prezzo).toFixed(2).replace(".", ",")} euro</b>
+        (${this._fmt(tot)} kWh). Di questo passo fanno ${(m * 30 * prezzo).toFixed(2).replace(".", ",")} euro al mese.`;
+    }
+
+    // Energia, il caso piu comune.
+    const quota = d.tot > 0 && f ? Math.round(100 * tot / d.tot) : null;
+    return `${testa} ho consumato <b>${this._fmt(tot)} kWh</b>
+      (${this._fmtE(tot).replace("\u2248 ", "circa ")})${quota != null
+        ? `, cioe il ${quota}% di tutto quello che ho consumato ${p.t}` : `, in media ${this._fmt(d.nGiorni ? tot / d.nGiorni : 0)} kWh al giorno su ${su}`}.`;
+  }
+
   _capisci(testo) {
     const t = " " + String(testo || "").toLowerCase().trim() + " ";
     const mesi = MC_MESI;
@@ -1595,16 +1728,24 @@ class MiniCard extends HTMLElement {
       const m = mesi.findIndex(x => t.includes(x));
       if (m >= 0) periodo = "m" + m;
     }
+    // Le tre dimensioni della domanda.
+    let metrica = null, aggr = null, fascia = null, su = null;
+    if (/\bcost|\beuro\b|\bspes|spend|soldi|bolletta|\u20ac/.test(t)) metrica = "costo";
+    else if (/kwh|consum|energia/.test(t)) metrica = "energia";
+    if (/\bmedia\b|in media|mediamente|al giorno/.test(t)) aggr = "media";
+    else if (/\bmassim|\bpiu alto|\bpeggior|record|di piu\b|\bpiu\b.*consum/.test(t)) aggr = "massimo";
+    else if (/\bminim|\bpiu basso|\bmiglior|di meno\b|\bmeno\b.*consum/.test(t)) aggr = "minimo";
+    Object.keys(MC_FASCE).forEach(k => { if (new RegExp("\\b" + k).test(t)) fascia = k; });
+    if (/\bnotturn/.test(t)) fascia = "notte";
+    if (/\bor[ae]\b|fascia oraria|momento della giornata/.test(t)) su = "ora";
+    else if (/\bgiorno\b|\bgiornata\b|\bgiorni\b/.test(t)) su = "giorno";
+
     let intento = null;
     if (/quanto hai lavorato|quanto hai funzionato|quanto sei stato acceso|quanto tempo/.test(t)) intento = "tempo";
     else if (/perche|perché|come mai/.test(t)) intento = "perche";
     else if (/accension|quante volte|quanti cicli|partenz|avvii|si e acceso/.test(t)) intento = "accensioni";
-    else if (/che ?or|quali ?or|\bore\b|orari|quando consum|fascia/.test(t)) intento = "ore";
-    else if (/peggior|massim|record|giorno piu|giorno più/.test(t)) intento = "peggiore";
-    else if (/cost|euro|spes|bolletta|soldi/.test(t)) intento = "costo";
-    else if (/cambiat|confront|rispetto|prima|meno di|piu di|più di/.test(t)) intento = "confronto";
-    else if (/quando ti accendi|quanto stai acceso|acceso|lavori/.test(t)) intento = "acceso";
-    else if (/quanto|consum|kwh/.test(t)) intento = "totale";
+    else if (/cambiat|confront|rispetto a prima|piu di prima|più di prima/.test(t)) intento = "confronto";
+    else if (/quando ti accendi|quando sei al lavoro|quanto stai acceso/.test(t)) intento = "acceso";
     // Una domanda che comincia con una parola interrogativa che non sappiamo
     // leggere non va servita con la risposta sbagliata: meglio dire di no.
     // (Senza questo, "quante accensioni hai fatto ieri" riconosceva solo
@@ -1612,16 +1753,18 @@ class MiniCard extends HTMLElement {
     // "Chi" e "dove" non sono cose che sappia di se: vede la propria
     // corrente, non chi ha premuto il tasto ne in che stanza si trova.
     if (/\bchi\b|\bdove\b/.test(t)) intento = null;
+    // Nessuna delle domande note, ma abbiamo capito COSA e COME: si compone.
+    if (!intento && (metrica || aggr || fascia)) intento = "composta";
     const dubbio = !intento && /\b(quante|quanti|perche|perché|come|chi|dove|quale|cosa)\b/.test(t);
-    return { intento, periodo, dubbio };
+    return { intento, periodo, dubbio, metrica: metrica || "energia", aggr, fascia, su };
   }
 
   _intervistaHTML() {
     const dom = [
-      ["totale", "Quanto hai consumato?"],
-      ["ore", "In quali ore consumi di piu?"],
-      ["peggiore", "Qual e stato il giorno peggiore?"],
-      ["costo", "Quanto mi costi?"],
+      ["composta", "Quanto hai consumato?"],
+      ["composta", "In quali ore consumi di piu?"],
+      ["composta", "Qual e stato il giorno peggiore?"],
+      ["composta", "Quanto mi costi?"],
       ["confronto", "Sei cambiato?"],
       ["acceso", "Quando sei al lavoro?"],
       ["accensioni", "Quante volte ti sei acceso?"],
@@ -3094,7 +3237,12 @@ class MiniCard extends HTMLElement {
         ov.querySelectorAll("[data-per]").forEach(el => el.onclick = () => {
           this._perNome = el.dataset.per; render();
         });
-        ov.querySelectorAll("[data-dom]").forEach(el => el.onclick = () => chiedi(el.dataset.dom, el.textContent.trim()));
+        ov.querySelectorAll("[data-dom]").forEach(el => el.onclick = () => {
+          // Anche i tasti pronti passano dal motore: cosi "il giorno peggiore"
+          // e "in quali ore" hanno una risposta sola, non due versioni.
+          this._q = this._capisci(el.textContent.trim());
+          chiedi(el.dataset.dom, el.textContent.trim());
+        });
         const inviaTesto = () => {
           const inp = ov.querySelector("#mc_chiedi");
           const testo = (inp.value || "").trim();
@@ -3104,11 +3252,12 @@ class MiniCard extends HTMLElement {
           if (!c.intento && (c.dubbio || !c.periodo)) {
             this._chat = this._chat || [];
             this._chat.push({ chi: "io", t: testo });
-            this._chat.push({ chi: "lui", t: "Questa non l'ho capita. Prova con uno dei tasti qui sotto, oppure scrivi per esempio \"quanto hai consumato il 20 agosto\", \"quante volte ti sei acceso ieri\" o \"in che ore consumi di piu\"." });
+            this._chat.push({ chi: "lui", t: "Questa non l'ho capita. Posso dirti quanto ho consumato o quanto ti costo, in un giorno, un mese o fra due date, anche solo di notte o di sera; quante volte mi sono acceso e per quanto; le mie ore di punta; il giorno piu carico o piu leggero; e se sto consumando piu di prima." });
             render();
             return;
           }
           if (c.periodo) this._perNome = c.periodo;
+          this._q = c;                       // i pezzi della domanda, per comporre
           chiedi(c.intento || "totale", testo, c.periodo);
         };
         ov.querySelector("[data-invia]").onclick = inviaTesto;
@@ -3688,6 +3837,15 @@ class MiniCardEditor extends HTMLElement {
         <div class="fld"><label>Pausa che chiude un'accensione (minuti)</label>
           <span class="h">Vuoto: 12 minuti per gli elettrodomestici a ciclo, mezzo minuto per pompe e compressori.</span>
           <input type="number" min="0" max="120" step="0.5" id="f_pausa" placeholder="automatico" value="${c.pausa_max || ""}"></div>
+        <div class="fld"><label>Assistente per le domande libere</label>
+          <span class="h">Senza, la card capisce solo le domande che conosce. Con un assistente collegato
+          puoi chiedere qualsiasi cosa: riceve i dati gia calcolati e l'ordine di non inventare numeri.</span>
+          <select id="f_agente">
+            <option value="">Nessuno (solo le domande note)</option>
+            ${Object.keys((this.hass && this.hass.states) || {}).filter(e => e.startsWith("conversation."))
+              .map(e => `<option value="${e}"${c.agente === e ? " selected" : ""}>${
+                ((this.hass.states[e].attributes || {}).friendly_name) || e}</option>`).join("")}
+          </select></div>
         <div class="fld"><label>Colori</label>
           <span class="h">Di suo segue il giorno e la notte del pannello che la ospita.</span>
           <select id="f_tema">
@@ -3792,6 +3950,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_tema", "change", e => this._set("tema", e.target.value));
     on("#f_pausa", "change", e => this._set("pausa_max", parseFloat(e.target.value) || ""));
+    on("#f_agente", "change", e => this._set("agente", e.target.value));
     on("#f_rif", "change", e => this._set("riferimento", parseInt(e.target.value) || ""));
     on("#f_freddotipo", "change", e => this._set("freddo_tipo", e.target.value));
     on("#f_sogliamedia", "change", e => this._set("soglia_media", parseInt(e.target.value) || 35));
