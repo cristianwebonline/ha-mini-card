@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.45.0";
+const MC_VERSION = "1.46.1";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1408,6 +1408,28 @@ class MiniCard extends HTMLElement {
 
   _nomeSuo() { return this._cfg.name || "questo apparecchio"; }
 
+  async _accensioniPeriodo(p) {
+    const h = this._hass, id = this._cfg.power;
+    if (!h || !id) return null;
+    if ((p.a - p.da) > 8.5 * 86400000) return "troppo";
+    const res = await h.callWS({
+      type: "history/history_during_period",
+      start_time: p.da.toISOString(), end_time: p.a.toISOString(),
+      entity_ids: [id], minimal_response: true, no_attributes: true,
+    });
+    const righe = (res && res[id]) || [];
+    const pts = righe.map(r => r.s !== undefined
+      ? { t: r.lu * 1000, w: parseFloat(r.s) }
+      : { t: new Date(r.last_updated || r.lu).getTime(), w: parseFloat(r.state) })
+      .filter(x => !isNaN(x.w) && !isNaN(x.t))
+      .map(x => ({ t: x.t, w: Math.min(2500, Math.max(0, x.w)) }))
+      .sort((a, b) => a.t - b.t);
+    const perGiorno = this._sessioniDa(pts);
+    const tutte = [];
+    Object.keys(perGiorno).forEach(k => (perGiorno[k] || []).forEach(x => tutte.push(x)));
+    return tutte.sort((a, b) => a.da - b.da);
+  }
+
   _dataLunga(k) {
     const [a, m, g] = k.split("-").map(Number);
     return new Date(a, m - 1, g).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
@@ -1432,6 +1454,30 @@ class MiniCard extends HTMLElement {
       const top = ordinate.slice(0, 3).map(x => `<b>${String(x.i).padStart(2, "0")}:00</b> (${this._fmt(x.v)} kWh)`);
       return `Lavoro soprattutto verso le ${top.join(", ")}. Questo e il mio profilo di una giornata tipo ${p.t}:
         ${this._oreHTML(d.mediaOra)}`;
+    }
+    if (intento === "perche") {
+      const ordinate = d.mediaOra.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v).filter(x => x.v > 0);
+      const peg = d.giorni.slice().sort((a, b) => b.v - a.v)[0];
+      const ore = ordinate.slice(0, 2).map(x => String(x.i).padStart(2, "0") + ":00").join(" e le ");
+      return `Il perche non lo so dire: vedo solo la mia corrente, non cosa succede in casa.
+        Quello che posso dirti e <b>quando</b>: ${p.t} ho consumato ${this._fmt(d.tot)} kWh,
+        ${ordinate.length ? `soprattutto verso le ${ore}` : "senza un'ora di punta"}${peg
+          ? `, e il giorno piu carico e stato il ${this._esc(this._dataLunga(peg.k))} con ${this._fmt(peg.v)} kWh` : ""}.
+        ${ordinate.length ? this._oreHTML(d.mediaOra) : ""}`;
+    }
+    if (intento === "accensioni") {
+      const acc = await this._accensioniPeriodo(p);
+      if (acc === "troppo") return `Su un periodo cosi lungo non riesco a contarle una per una:
+        chiedimelo su una settimana o su un giorno preciso.`;
+      if (!acc) return "Non riesco a leggere le mie accensioni: manca il sensore di potenza.";
+      if (!acc.length) return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} non mi sono mai acceso.`;
+      const durata = acc.reduce((a, x) => a + (x.a - x.da), 0);
+      const piuLunga = acc.slice().sort((a, b) => (b.a - b.da) - (a.a - a.da))[0];
+      const quante = acc.length === 1 ? "una volta sola" : acc.length + " volte";
+      return `${p.t.charAt(0).toUpperCase() + p.t.slice(1)} mi sono acceso <b>${quante}</b>,
+        per ${this._durata(durata)} in tutto. La prima alle ${this._ora(acc[0].da)},
+        l'ultima alle ${this._ora(acc[acc.length - 1].da)}${acc.length > 1
+          ? `; la piu lunga e durata ${this._durata(piuLunga.a - piuLunga.da)}` : ""}.`;
     }
     if (intento === "peggiore") {
       if (!d.giorni.length) return "Non ho giorni da confrontare in quel periodo.";
@@ -1510,13 +1556,23 @@ class MiniCard extends HTMLElement {
       if (m >= 0) periodo = "m" + m;
     }
     let intento = null;
-    if (/che ?or|quali ?or|\bore\b|orari|quando consum|fascia/.test(t)) intento = "ore";
+    if (/perche|perché|come mai/.test(t)) intento = "perche";
+    else if (/accension|quante volte|quanti cicli|partenz|avvii|si e acceso/.test(t)) intento = "accensioni";
+    else if (/che ?or|quali ?or|\bore\b|orari|quando consum|fascia/.test(t)) intento = "ore";
     else if (/peggior|massim|record|giorno piu|giorno più/.test(t)) intento = "peggiore";
     else if (/cost|euro|spes|bolletta|soldi/.test(t)) intento = "costo";
     else if (/cambiat|confront|rispetto|prima|meno di|piu di|più di/.test(t)) intento = "confronto";
     else if (/quando ti accendi|quanto stai acceso|acceso|lavori/.test(t)) intento = "acceso";
     else if (/quanto|consum|kwh/.test(t)) intento = "totale";
-    return { intento, periodo };
+    // Una domanda che comincia con una parola interrogativa che non sappiamo
+    // leggere non va servita con la risposta sbagliata: meglio dire di no.
+    // (Senza questo, "quante accensioni hai fatto ieri" riconosceva solo
+    // "ieri" e rispondeva con il consumo totale, come se nulla fosse.)
+    // "Chi" e "dove" non sono cose che sappia di se: vede la propria
+    // corrente, non chi ha premuto il tasto ne in che stanza si trova.
+    if (/\bchi\b|\bdove\b/.test(t)) intento = null;
+    const dubbio = !intento && /\b(quante|quanti|perche|perché|come|chi|dove|quale|cosa)\b/.test(t);
+    return { intento, periodo, dubbio };
   }
 
   _intervistaHTML() {
@@ -1527,6 +1583,7 @@ class MiniCard extends HTMLElement {
       ["costo", "Quanto mi costi?"],
       ["confronto", "Sei cambiato?"],
       ["acceso", "Quando sei al lavoro?"],
+      ["accensioni", "Quante volte ti sei acceso?"],
     ];
     const per = [["oggi", "oggi"], ["ieri", "ieri"], ["7", "7 giorni"], ["30", "30 giorni"],
       ["mese", "questo mese"], ["mesescorso", "mese scorso"]];
@@ -3003,10 +3060,10 @@ class MiniCard extends HTMLElement {
           if (!testo) return;
           inp.value = "";
           const c = this._capisci(testo);
-          if (!c.intento && !c.periodo) {
+          if (!c.intento && (c.dubbio || !c.periodo)) {
             this._chat = this._chat || [];
             this._chat.push({ chi: "io", t: testo });
-            this._chat.push({ chi: "lui", t: "Questa non l'ho capita. Prova con uno dei tasti qui sotto, oppure scrivi per esempio \"quanto hai consumato il 20 agosto\", \"dal 10 al 20 agosto\" o \"in che ore consumi di piu\"." });
+            this._chat.push({ chi: "lui", t: "Questa non l'ho capita. Prova con uno dei tasti qui sotto, oppure scrivi per esempio \"quanto hai consumato il 20 agosto\", \"quante volte ti sei acceso ieri\" o \"in che ore consumi di piu\"." });
             render();
             return;
           }
