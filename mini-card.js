@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.50.0";
+const MC_VERSION = "1.51.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2105,6 +2105,33 @@ class MiniCard extends HTMLElement {
         box-shadow:0 8px 20px rgba(0,0,0,.32),
           0 0 calc(14px + var(--mc-intensita,0.5) * 20px)
           rgba(14,159,110,calc(0.35 + var(--mc-intensita,0.5) * 0.35))}
+      /* ACCESA MA FERMA. La presa da corrente e l'apparecchio non fa niente.
+         Era un verde cosi tenue che sul telefono non si distingueva da una
+         presa spenta (Cristian: "non capisco quando la presa e accesa ma non
+         ha consumo, il colore e lo stesso"). Adesso e AZZURRO: vuol dire
+         "c'e corrente". Il verde resta di chi sta lavorando davvero, e cosi
+         i quattro stati si leggono a colpo d'occhio senza avvicinarsi:
+         grigio = staccata, azzurro = pronta, verde = lavora, ambra = tira. */
+      .mc-card.on.attesa{
+        background-image:linear-gradient(rgba(90,169,255,.17),rgba(90,169,255,.17));
+        border-color:rgba(90,169,255,.5);
+        box-shadow:0 8px 20px rgba(0,0,0,.32),0 0 14px rgba(90,169,255,.32)}
+      .mc-card.on.attesa .mc-state{color:#9fd0ff}
+      .mc.chiaro .mc-card.on.attesa{
+        background-image:linear-gradient(rgba(30,120,215,.14),rgba(30,120,215,.14));
+        border-color:rgba(30,120,215,.42)}
+      .mc.chiaro .mc-card.on.attesa .mc-state{color:#14538d}
+      /* PRESA SPENTA: niente corrente. Un grigio ardesia pieno, non il fondo
+         neutro di prima: cosi "spenta" e una cosa detta, non l'assenza di
+         una cosa detta. */
+      .mc-card.staccata{
+        background-image:linear-gradient(rgba(125,145,165,.13),rgba(125,145,165,.13));
+        border-color:rgba(150,170,190,.26);box-shadow:0 8px 20px rgba(0,0,0,.3)}
+      .mc-card.staccata .mc-iconwrap{opacity:.5}
+      .mc-card.staccata .mc-state{color:var(--mc-muted)}
+      .mc.chiaro .mc-card.staccata{
+        background-image:linear-gradient(rgba(15,30,45,.07),rgba(15,30,45,.07));
+        border-color:rgba(15,30,45,.18)}
       /* TROPPO: sta tirando piu di quanto e normale per lui. Ambra, non
          rosso: il rosso in casa vuol dire rotto o aperto, qui non c'e niente
          di guasto. Vince sul verde perche ha una classe in piu. */
@@ -3128,6 +3155,10 @@ class MiniCard extends HTMLElement {
     this._el.classList.toggle("quadrata", cfg.taglia === "quadrata");
     this._el.classList.toggle("lavora", st === "lavora");
     this._el.classList.toggle("attesa", st === "attesa");
+    // Presa spenta: solo quando una presa c'e davvero. Una card fatta col
+    // solo sensore di potenza non ha niente da staccare, e colorarla come una
+    // presa spenta direbbe una cosa falsa.
+    this._el.classList.toggle("staccata", st === "staccata" && !!sw);
     // La tinta di "sta lavorando" era sempre la stessa, che l'apparecchio
     // tirasse 15W o 1500W: un forno appena acceso e un forno a tutta
     // potenza si vedevano identici. Qui la tinta cresce con quanto sta
