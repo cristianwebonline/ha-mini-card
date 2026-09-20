@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.49.2";
+const MC_VERSION = "1.50.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -120,6 +120,7 @@ const MC_DEFAULTS = {
   soglia_media: 35,         // % sopra la sua media che fa scattare l'avviso
   soglia_targa: 1.5,        // quante volte la targa prima di gridare energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
+  soglia_troppo: 0,         // W oltre i quali la tessera passa all'arancione (0 = mai)
   taglia: "normale",
   // Di serie chiede conferma prima di accendere o spegnere: il tocco sulla
   // pill sta a un dito da quello che apre la card, e sbagliare vuol dire
@@ -2104,6 +2105,28 @@ class MiniCard extends HTMLElement {
         box-shadow:0 8px 20px rgba(0,0,0,.32),
           0 0 calc(14px + var(--mc-intensita,0.5) * 20px)
           rgba(14,159,110,calc(0.35 + var(--mc-intensita,0.5) * 0.35))}
+      /* TROPPO: sta tirando piu di quanto e normale per lui. Ambra, non
+         rosso: il rosso in casa vuol dire rotto o aperto, qui non c'e niente
+         di guasto. Vince sul verde perche ha una classe in piu. */
+      .mc-card.on.lavora.troppo{
+        background-image:linear-gradient(
+          rgba(200,120,0,calc(0.20 + var(--mc-troppo,0.5) * 0.32)),
+          rgba(200,120,0,calc(0.20 + var(--mc-troppo,0.5) * 0.32)));
+        border-color:rgba(255,176,32,calc(0.45 + var(--mc-troppo,0.5) * 0.4));
+        box-shadow:0 8px 20px rgba(0,0,0,.32),
+          0 0 calc(16px + var(--mc-troppo,0.5) * 22px)
+          rgba(255,176,32,calc(0.35 + var(--mc-troppo,0.5) * 0.35))}
+      .mc-card.on.lavora.troppo .mc-state{color:#ffc55c}
+      .mc-card.on.lavora.troppo .mc-metric{color:#ffd694}
+      .mc-card.on.lavora.troppo .mc-glow{filter:hue-rotate(-95deg) saturate(1.4)}
+      /* Di giorno l'ambra chiara sul fondo chiaro non si legge: si scurisce
+         la scritta, come nella finestra di conferma. */
+      .mc.chiaro .mc-card.on.lavora.troppo{
+        background-image:linear-gradient(
+          rgba(214,130,0,calc(0.16 + var(--mc-troppo,0.5) * 0.26)),
+          rgba(214,130,0,calc(0.16 + var(--mc-troppo,0.5) * 0.26)))}
+      .mc.chiaro .mc-card.on.lavora.troppo .mc-state,
+      .mc.chiaro .mc-card.on.lavora.troppo .mc-metric{color:#7a4400}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
       .mc-card.on .mc-state{color:var(--mc-c-ok,#8ff0b4)}
       /* In attesa il testo resta neutro: il verde acceso vuol dire "sta
@@ -2907,6 +2930,25 @@ class MiniCard extends HTMLElement {
     }
   }
 
+  // QUANDO E' TROPPO. "Acceso" e "sta lavorando" si vedevano gia (verde), ma
+  // un forno a 2400 W e un caricabatterie a 12 W avevano la stessa faccia,
+  // salvo la sfumatura del verde. Sopra questa soglia la tessera passa
+  // all'arancione e lo scrive: non e un guasto, e "guarda che sta mangiando".
+  // Il numero si scrive nella Configura della card, uno per apparecchio,
+  // perche 800 W sono tanti per un televisore e pochi per un forno.
+  // Zero o vuoto: non succede mai, la card resta come prima.
+  _sogliaTroppo() {
+    const v = parseFloat(this._cfg.soglia_troppo);
+    return isFinite(v) && v > 0 ? v : 0;
+  }
+
+  _oltreTroppo(p) {
+    const s = this._sogliaTroppo();
+    if (!s) return false;
+    const w = p === undefined ? this._num(this._cfg.power) : p;
+    return w != null && w >= s;
+  }
+
   _stato() {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
@@ -2976,11 +3018,13 @@ class MiniCard extends HTMLElement {
       if (st === "staccata") return c.giu;
       // "Acceso, in attesa" diceva acceso dell'apparecchio: e la presa a
       // essere accesa, l'apparecchio e fermo.
+      if (st === "lavora" && this._oltreTroppo()) return "Sta consumando parecchio";
       return st === "lavora" ? "In funzione" : c.on + ", fermo";
     }
     // Senza sensore di potenza NON si sa se l'apparecchio lavora: si dice
     // soltanto quello che si sa, cioe com'e messo l'interruttore.
     if (sw) return on ? c.on : c.off;
+    if (cfg.power && on && this._oltreTroppo()) return "Sta consumando parecchio";
     return cfg.power ? (on ? "Attivo" : "A riposo") : "";
   }
 
@@ -3099,6 +3143,16 @@ class MiniCard extends HTMLElement {
     } else {
       this._el.style.removeProperty("--mc-intensita");
     }
+    // Oltre la sua soglia: arancione, e tanto piu carico quanto piu sfora.
+    // Il tetto e mezza soglia in piu, cosi il colore si sente subito senza
+    // aspettare il doppio.
+    const trop = this._sogliaTroppo();
+    const oltre = trop > 0 && st === "lavora" && p != null && p >= trop;
+    this._el.classList.toggle("troppo", oltre);
+    if (oltre) {
+      const q = Math.max(0.25, Math.min(1, (p - trop) / (trop * 0.5) * 0.75 + 0.25));
+      this._el.style.setProperty("--mc-troppo", q.toFixed(2));
+    } else this._el.style.removeProperty("--mc-troppo");
     this._el.querySelector('[data-role="state"]').textContent = this._stateText(on);
 
     const badge = this._el.querySelector('[data-role="badge"]');
@@ -3843,6 +3897,11 @@ class MiniCardEditor extends HTMLElement {
             <option value="quadrata"${c.taglia === "quadrata" ? " selected" : ""}>Quadrata</option>
           </select></div>
         <div class="fld"><label>Soglia "attivo" (W)</label><input type="number" min="1" max="500" id="f_soglia" value="${c.soglia || 10}"></div>
+        <div class="fld"><label>Diventa arancione sopra (W)</label>
+          <span class="h">Quando tira piu di cosi la tessera passa all'arancione e scrive "sta consumando
+          parecchio". Il numero e suo: 800 W sono tanti per un televisore e pochi per un forno.
+          Vuoto: non succede mai.</span>
+          <input type="number" min="0" max="10000" step="10" id="f_troppo" placeholder="spento" value="${c.soglia_troppo || ""}"></div>
         <div class="fld"><label>Pausa che chiude un'accensione (minuti)</label>
           <span class="h">Vuoto: 12 minuti per gli elettrodomestici a ciclo, mezzo minuto per pompe e compressori.</span>
           <input type="number" min="0" max="120" step="0.5" id="f_pausa" placeholder="automatico" value="${c.pausa_max || ""}"></div>
@@ -3957,6 +4016,7 @@ class MiniCardEditor extends HTMLElement {
     on("#f_taglia", "change", e => this._set("taglia", e.target.value));
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
+    on("#f_troppo", "change", e => this._set("soglia_troppo", parseInt(e.target.value) || 0));
     on("#f_tema", "change", e => this._set("tema", e.target.value));
     on("#f_pausa", "change", e => this._set("pausa_max", parseFloat(e.target.value) || ""));
     on("#f_agente", "change", e => this._set("agente", e.target.value));
