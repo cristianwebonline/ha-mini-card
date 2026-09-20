@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.49.1";
+const MC_VERSION = "1.49.2";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2054,8 +2054,17 @@ class MiniCard extends HTMLElement {
       .mc.chiaro .mc-chiedibtn{background:rgba(52,140,205,.13)}
       .mc.chiaro .mc-hero-icon .mc-svg{filter:drop-shadow(0 10px 18px rgba(15,30,45,.22))}
       .mc.chiaro .mc-conferma{background:#f4f7fa;color:var(--mc-ink)}
-      .mc.chiaro .mc-cbtn{background:rgba(15,30,45,.06);color:var(--mc-ink)}
+      .mc.chiaro .mc-cbtn{background:rgba(15,30,45,.06);color:var(--mc-ink);border-color:rgba(15,30,45,.14)}
       .mc.chiaro .mc-scrim.mc-conf{background:rgba(228,235,242,.72)}
+      /* Di giorno il fondo della finestra e chiaro: i colori del pulsante di
+         conferma erano pensati per il fondo scuro (verde pallido, ambra
+         pallida) e sopra il bianco sparivano. Di giorno si scurisce la scritta
+         e si tiene il colore solo nel fondo e nel bordo. */
+      .mc.chiaro .mc-conferma-sotto{color:#5b6b7a}
+      .mc.chiaro .mc-cbtn.si{background:linear-gradient(135deg,rgba(16,150,88,.20),rgba(16,150,88,.09));
+        border-color:rgba(16,150,88,.55);color:#0a6134}
+      .mc.chiaro .mc-conferma.spegni .mc-cbtn.si{background:linear-gradient(135deg,rgba(214,130,0,.24),rgba(214,130,0,.10));
+        border-color:rgba(200,120,0,.6);color:#7a4400}
 
       @keyframes mc-blink{0%,100%{opacity:1}50%{opacity:.55}}
       /* Acceso: la velatura verde va SOPRA il pannello, non al suo posto.
