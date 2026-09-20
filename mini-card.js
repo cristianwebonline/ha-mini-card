@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.51.0";
+const MC_VERSION = "1.52.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2099,9 +2099,9 @@ class MiniCard extends HTMLElement {
          arriva al bagliore piu intenso di tutti. */
       .mc-card.on.lavora{
         background-image:linear-gradient(
-          rgba(14,159,110,calc(0.16 + var(--mc-intensita,0.5) * 0.34)),
-          rgba(14,159,110,calc(0.16 + var(--mc-intensita,0.5) * 0.34)));
-        border-color:rgba(14,159,110,calc(0.3 + var(--mc-intensita,0.5) * 0.35));
+          rgba(14,159,110,calc(0.28 + var(--mc-intensita,0.5) * 0.30)),
+          rgba(14,159,110,calc(0.28 + var(--mc-intensita,0.5) * 0.30)));
+        border-color:rgba(56,224,138,calc(0.6 + var(--mc-intensita,0.5) * 0.3));
         box-shadow:0 8px 20px rgba(0,0,0,.32),
           0 0 calc(14px + var(--mc-intensita,0.5) * 20px)
           rgba(14,159,110,calc(0.35 + var(--mc-intensita,0.5) * 0.35))}
@@ -2112,34 +2112,45 @@ class MiniCard extends HTMLElement {
          "c'e corrente". Il verde resta di chi sta lavorando davvero, e cosi
          i quattro stati si leggono a colpo d'occhio senza avvicinarsi:
          grigio = staccata, azzurro = pronta, verde = lavora, ambra = tira. */
+      /* I veli erano troppo educati: su un telefono, di giorno, un 17% di
+         colore su fondo chiaro non si vede (Cristian: "ancora non si capisce
+         molto"). Qui il colore e pieno e il bordo e spesso il doppio: la
+         differenza si coglie senza mettere a fuoco. */
       .mc-card.on.attesa{
-        background-image:linear-gradient(rgba(90,169,255,.17),rgba(90,169,255,.17));
-        border-color:rgba(90,169,255,.5);
-        box-shadow:0 8px 20px rgba(0,0,0,.32),0 0 14px rgba(90,169,255,.32)}
-      .mc-card.on.attesa .mc-state{color:#9fd0ff}
+        background-image:linear-gradient(rgba(90,169,255,.30),rgba(90,169,255,.30));
+        border-color:rgba(90,169,255,.85);box-shadow:0 8px 20px rgba(0,0,0,.32),0 0 16px rgba(90,169,255,.4)}
+      .mc-card.on.attesa .mc-state{color:#bfe0ff}
       .mc.chiaro .mc-card.on.attesa{
-        background-image:linear-gradient(rgba(30,120,215,.14),rgba(30,120,215,.14));
-        border-color:rgba(30,120,215,.42)}
-      .mc.chiaro .mc-card.on.attesa .mc-state{color:#14538d}
+        background-image:linear-gradient(rgba(30,120,215,.26),rgba(30,120,215,.26));
+        border-color:rgba(30,120,215,.75)}
+      .mc.chiaro .mc-card.on.attesa .mc-state{color:#0f4576}
       /* PRESA SPENTA: niente corrente. Un grigio ardesia pieno, non il fondo
          neutro di prima: cosi "spenta" e una cosa detta, non l'assenza di
          una cosa detta. */
+      /* Staccata non si dice con un grigio un po' diverso: si dice
+         SPEGNENDO la card. L'icona perde il colore e sbiadisce, il nome si
+         attenua, il bordo si fa tratteggiato — il segno che ovunque vuol dire
+         "questo adesso non c'e". Il tasto per riaccendere resta pieno, perche
+         quello serve. */
       .mc-card.staccata{
-        background-image:linear-gradient(rgba(125,145,165,.13),rgba(125,145,165,.13));
-        border-color:rgba(150,170,190,.26);box-shadow:0 8px 20px rgba(0,0,0,.3)}
-      .mc-card.staccata .mc-iconwrap{opacity:.5}
-      .mc-card.staccata .mc-state{color:var(--mc-muted)}
+        background-image:linear-gradient(rgba(125,145,165,.10),rgba(125,145,165,.10));
+        border-style:dashed;border-color:rgba(150,170,190,.42);box-shadow:0 6px 16px rgba(0,0,0,.26)}
+      .mc-card.staccata .mc-iconwrap{filter:grayscale(1);opacity:.34}
+      .mc-card.staccata .mc-glow{opacity:0}
+      .mc-card.staccata .mc-name{opacity:.62}
+      .mc-card.staccata .mc-state{color:var(--mc-muted);opacity:.85}
+      .mc-card.staccata .mc-metric{opacity:.5}
       .mc.chiaro .mc-card.staccata{
-        background-image:linear-gradient(rgba(15,30,45,.07),rgba(15,30,45,.07));
-        border-color:rgba(15,30,45,.18)}
+        background-image:linear-gradient(rgba(15,30,45,.055),rgba(15,30,45,.055));
+        border-color:rgba(15,30,45,.3)}
       /* TROPPO: sta tirando piu di quanto e normale per lui. Ambra, non
          rosso: il rosso in casa vuol dire rotto o aperto, qui non c'e niente
          di guasto. Vince sul verde perche ha una classe in piu. */
       .mc-card.on.lavora.troppo{
         background-image:linear-gradient(
-          rgba(200,120,0,calc(0.20 + var(--mc-troppo,0.5) * 0.32)),
-          rgba(200,120,0,calc(0.20 + var(--mc-troppo,0.5) * 0.32)));
-        border-color:rgba(255,176,32,calc(0.45 + var(--mc-troppo,0.5) * 0.4));
+          rgba(200,120,0,calc(0.32 + var(--mc-troppo,0.5) * 0.28)),
+          rgba(200,120,0,calc(0.32 + var(--mc-troppo,0.5) * 0.28)));
+        border-color:rgba(255,176,32,calc(0.7 + var(--mc-troppo,0.5) * 0.3));
         box-shadow:0 8px 20px rgba(0,0,0,.32),
           0 0 calc(16px + var(--mc-troppo,0.5) * 22px)
           rgba(255,176,32,calc(0.35 + var(--mc-troppo,0.5) * 0.35))}
@@ -2150,8 +2161,16 @@ class MiniCard extends HTMLElement {
          la scritta, come nella finestra di conferma. */
       .mc.chiaro .mc-card.on.lavora.troppo{
         background-image:linear-gradient(
-          rgba(214,130,0,calc(0.16 + var(--mc-troppo,0.5) * 0.26)),
-          rgba(214,130,0,calc(0.16 + var(--mc-troppo,0.5) * 0.26)))}
+          rgba(214,130,0,calc(0.26 + var(--mc-troppo,0.5) * 0.26)),
+          rgba(214,130,0,calc(0.26 + var(--mc-troppo,0.5) * 0.26)));
+        border-color:rgba(190,110,0,.8)}
+      /* Di giorno il verde su fondo bianco spariva: qui e un verde vero. */
+      .mc.chiaro .mc-card.on.lavora{
+        background-image:linear-gradient(
+          rgba(12,140,95,calc(0.22 + var(--mc-intensita,0.5) * 0.24)),
+          rgba(12,140,95,calc(0.22 + var(--mc-intensita,0.5) * 0.24)));
+        border-color:rgba(12,140,95,.7)}
+      .mc.chiaro .mc-card.on.lavora .mc-state{color:#0a6134}
       .mc.chiaro .mc-card.on.lavora.troppo .mc-state,
       .mc.chiaro .mc-card.on.lavora.troppo .mc-metric{color:#7a4400}
       .mc-state{font-size:9.5px;font-weight:700;color:var(--mc-muted)}
