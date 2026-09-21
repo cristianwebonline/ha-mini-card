@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.52.0";
+const MC_VERSION = "1.53.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2014,6 +2014,20 @@ class MiniCard extends HTMLElement {
         cursor:pointer;min-height:22px;box-sizing:border-box;
         font-size:10px;font-weight:800;letter-spacing:.2px;background:rgba(255,255,255,.06);border:1px solid var(--mc-stroke);color:var(--mc-muted)}
       .mc-durbox{display:flex;align-items:center;gap:10px}
+      /* IL DITO NON E UN CURSORE. Il tasto accendi/spegni della tessera e il
+         comando piu usato di tutta la card, ed era alto 22 pixel: meta di un
+         polpastrello. A vista resta com'e, ma sul telefono risponde al tocco
+         su 44 pixel (uno strato trasparente sopra e sotto). Anche la X di
+         chiusura si allarga; i tasti - e + della durata, che stanno in fila,
+         crescono davvero. Col mouse non cambia niente. */
+      @media (pointer: coarse){
+        .mc-badge{position:relative}
+        .mc-badge::before{content:"";position:absolute;inset:-11px -4px;border-radius:inherit}
+        .mc-x{position:relative}
+        .mc-x::before{content:"";position:absolute;inset:-7px;border-radius:50%}
+        .mc-durbtn{width:44px;height:44px;font-size:20px}
+        .mc-chip{min-height:36px}
+      }
       .mc-durbox b{font-size:19px;font-weight:900;min-width:52px;text-align:center}
       .mc-durbox b small{font-size:11px;font-weight:700;color:var(--mc-muted);margin-left:2px}
       .mc-durbtn{width:34px;height:34px;border-radius:11px;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.07);
