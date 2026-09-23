@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.54.0";
+const MC_VERSION = "1.55.0";
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -121,6 +121,8 @@ const MC_DEFAULTS = {
   soglia_targa: 1.5,        // quante volte la targa prima di gridare energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "", mode: "device",
   soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
   soglia_troppo: 0,         // W oltre i quali la tessera passa all'arancione (0 = mai)
+  manuale: "",              // il libretto dell'apparecchio: link o file in HA
+  manuale_nome: "",         // come si chiama il tasto (di suo: "Manuale")
   taglia: "normale",
   // Di serie chiede conferma prima di accendere o spegnere: il tocco sulla
   // pill sta a un dito da quello che apre la card, e sbagliare vuol dire
@@ -3301,6 +3303,12 @@ class MiniCard extends HTMLElement {
       // dappertutto, come tutte le altre icone di questo pannello.
       if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle"><ha-icon icon="mdi:power"></ha-icon> ${on ? "Spegni" : "Accendi"}</button>`);
       if (this._priorityEntity()) actions.push(`<button class="mc-pill" data-act="info">⚙ Informazioni</button>`);
+      // IL LIBRETTO DELL'APPARECCHIO. Stava in una tessera a parte che
+      // occupava mezza riga della stanza: qui e accanto ad Accendi e
+      // Informazioni, dove uno lo cerca, e non ruba spazio a niente.
+      if ((cfg.manuale || "").trim()) {
+        actions.push(`<button class="mc-pill" data-act="manuale"><ha-icon icon="mdi:book-open-page-variant"></ha-icon> ${this._esc(cfg.manuale_nome || "Manuale")}</button>`);
+      }
       if (cfg.mode === "room" && cfg.path) actions.push(`<button class="mc-pill mc-pill-primary" data-act="nav">Apri la vista →</button>`);
       const chips = this._subParts().map(p => `<div class="mc-chip">${p}</div>`).join("");
 
@@ -3460,6 +3468,17 @@ class MiniCard extends HTMLElement {
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
       if (q('[data-act="info"]')) q('[data-act="info"]').onclick = () => { close(); this._openMoreInfo(); };
+      // Il libretto: un indirizzo interno a Home Assistant si apre nel
+      // pannello, uno esterno nel browser.
+      if (q('[data-act="manuale"]')) q('[data-act="manuale"]').onclick = () => {
+        const u = String(this._cfg.manuale || "").trim();
+        if (!u) return;
+        if (u.startsWith("/") && !u.startsWith("/local/") && !u.startsWith("/api/")) {
+          close();
+          history.pushState(null, "", u);
+          window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+        } else window.open(u, "_blank", "noopener");
+      };
       if (q('[data-act="nav"]')) q('[data-act="nav"]').onclick = () => { close(); this._navigate(cfg.path); };
     };
     render();
@@ -3966,6 +3985,12 @@ class MiniCardEditor extends HTMLElement {
           parecchio". Il numero e suo: 800 W sono tanti per un televisore e pochi per un forno.
           Vuoto: non succede mai.</span>
           <input type="number" min="0" max="10000" step="10" id="f_troppo" placeholder="spento" value="${c.soglia_troppo || ""}"></div>
+        <div class="fld"><label>Manuale dell'apparecchio</label>
+          <span class="h">Compare come tasto accanto ad Accendi e Informazioni, quando apri la card.
+          Puo essere un link internet o un file caricato in Home Assistant (/local/forno.pdf).</span>
+          <input type="text" id="f_manuale" placeholder="https://..." value="${(c.manuale || "").replace(/"/g, "&quot;")}"></div>
+        <div class="fld"><label>Scritta del tasto del manuale</label>
+          <input type="text" id="f_manualenome" placeholder="Manuale" value="${(c.manuale_nome || "").replace(/"/g, "&quot;")}"></div>
         <div class="fld"><label>Pausa che chiude un'accensione (minuti)</label>
           <span class="h">Vuoto: 12 minuti per gli elettrodomestici a ciclo, mezzo minuto per pompe e compressori.</span>
           <input type="number" min="0" max="120" step="0.5" id="f_pausa" placeholder="automatico" value="${c.pausa_max || ""}"></div>
@@ -4081,6 +4106,8 @@ class MiniCardEditor extends HTMLElement {
     on("#f_icona", "change", e => this._set("icona", e.target.value));
     on("#f_soglia", "change", e => this._set("soglia", parseInt(e.target.value) || 10));
     on("#f_troppo", "change", e => this._set("soglia_troppo", parseInt(e.target.value) || 0));
+    on("#f_manuale", "change", e => this._set("manuale", e.target.value.trim()));
+    on("#f_manualenome", "change", e => this._set("manuale_nome", e.target.value.trim()));
     on("#f_tema", "change", e => this._set("tema", e.target.value));
     on("#f_pausa", "change", e => this._set("pausa_max", parseFloat(e.target.value) || ""));
     on("#f_agente", "change", e => this._set("agente", e.target.value));
