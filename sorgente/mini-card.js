@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.56.0";
+const MC_VERSION = "1.57.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2364,6 +2364,16 @@ class MiniCard extends HTMLElement {
       .mc-cl-modi button{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:5px;padding:10px 8px;border-radius:13px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;
         border:1px solid var(--mc-stroke);background:rgba(255,255,255,.05);color:var(--mc-ink)}
       .mc-cl-modi button.sel{background:rgba(71,181,255,.2);border-color:rgba(71,181,255,.6)}
+      .mc-cl-timer:not(:empty){margin:10px 0 0;padding:14px;border-radius:18px;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.04);color:var(--mc-ink)}
+      .mc-cl-ttit{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800}
+      .mc-cl-ttit span{flex:1;min-width:0}
+      .mc-cl-ttit b{font-size:17px;font-weight:850}
+      .mc-cl-tfra{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:10px}
+      .mc-cl-talle{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;margin-top:9px;font-size:12.5px;font-weight:800}
+      .mc-cl-talle input{width:100%;min-width:0;box-sizing:border-box;padding:9px 8px;border-radius:12px;font:inherit;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
+      .mc-cl-timer button{padding:10px 8px;border-radius:12px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
+      .mc-cl-tnota,.mc-cl-tmsg{margin-top:8px;font-size:11.5px;font-weight:700;color:var(--mc-muted)}
+      .mc.chiaro .mc-cl-timer:not(:empty),.mc.chiaro .mc-cl-timer button,.mc.chiaro .mc-cl-talle input{background:rgba(15,30,45,.055)}
       .mc-cl-avviso{display:flex;gap:8px;align-items:flex-start;font-size:13px;font-weight:700;line-height:1.35}
       .mc.chiaro .mc-clima,.mc.chiaro .mc-cl-power,.mc.chiaro .mc-cl-temp button,.mc.chiaro .mc-cl-modi button{background:rgba(15,30,45,.055)}
       .mc.chiaro .mc-cl-power.on{background:rgba(220,60,60,.13)}
@@ -2593,6 +2603,128 @@ class MiniCard extends HTMLElement {
     if (!box) return;
     const html = this._climaHTML();
     if (html !== box._html) { box._html = html; box.innerHTML = html; }
+    // Il riquadro del timer si ridisegna solo se cambia davvero cosa mostra: col
+    // sensore della stanza che si aggiorna spesso, ridisegnarlo a ogni giro
+    // cancellerebbe l'orario mentre lo stai scrivendo.
+    const tb = this.querySelector(".mc-scrim .mc-cl-timer");
+    const firma = this._ctimerFirma();
+    if (tb && firma !== this._ctFirma) { this._ctFirma = firma; tb.innerHTML = this._ctimerHTML(); }
+  }
+
+  // ---- timer di spegnimento del clima ---------------------------------------
+  // Spegne l'apparecchio e non tocca la presa. E un'automazione vera di Home
+  // Assistant, quindi scatta anche a telefono spento. Ha lo stesso nome interno
+  // dell'ordine singolo della card clima grande: l'ordine e uno solo, e lo si
+  // vede e lo si annulla da tutte e due.
+  _ctimerId() {
+    return "faber_clima_once_off_" + (this._cfg.climate || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+  }
+
+  _ctimerEntita() {
+    const id = this._ctimerId();
+    return Object.keys(this._hass.states).find(e =>
+      e.startsWith("automation.") && this._hass.states[e].attributes.id === id) || null;
+  }
+
+  async _ctimerLeggi() {
+    this._ctOra = null;
+    try {
+      const c = await this._hass.callApi("get", "config/automation/config/" + this._ctimerId());
+      const t = ((c && (c.triggers || c.trigger)) || [])[0];
+      this._ctOra = t && typeof t.at === "string" ? t.at.slice(0, 5) : null;
+    } catch (e) { this._ctOra = null; }
+    this._climaRidisegna();
+  }
+
+  // L'orario resta scritto anche dopo che e scattato: conta solo se
+  // l'automazione e ancora attiva. Appena scritta puo non avere ancora il suo
+  // stato, e in quel caso vale l'orario appena impostato.
+  _ctimerAttivo() {
+    if (!this._ctOra) return false;
+    const e = this._ctimerEntita();
+    return !e || this._hass.states[e].state === "on";
+  }
+
+  _ctimerFirma() {
+    const c = this._clima();
+    const puo = c && !this._climaGiu() && c.state !== "off";
+    return [puo ? 1 : 0, this._ctimerAttivo() ? this._ctOra : "", this._ctMsg || ""].join("|");
+  }
+
+  _ctimerHTML() {
+    const c = this._clima();
+    this._ctFirma = this._ctimerFirma();
+    if (!c || this._climaGiu() || c.state === "off") {
+      return this._ctimerAttivo() ? `<div class="mc-cl-ttit"><ha-icon icon="mdi:timer-outline"></ha-icon><span>Spegnimento alle <b>${this._esc(this._ctOra)}</b></span>
+        <button type="button" data-tannulla>Annulla</button></div>` : "";
+    }
+    const msg = this._ctMsg ? `<div class="mc-cl-tmsg">${this._esc(this._ctMsg)}</div>` : "";
+    if (this._ctimerAttivo()) {
+      return `<div class="mc-cl-ttit"><ha-icon icon="mdi:timer-outline"></ha-icon><span>Si spegne alle <b>${this._esc(this._ctOra)}</b></span>
+        <button type="button" data-tannulla>Annulla</button></div>${msg}`;
+    }
+    return `<div class="mc-cl-ttit"><ha-icon icon="mdi:timer-outline"></ha-icon><span>Timer di spegnimento</span></div>
+      <div class="mc-cl-tfra">${[[30, "30 min"], [60, "1 ora"], [120, "2 ore"], [180, "3 ore"]].map(([m, t]) =>
+        `<button type="button" data-tfra="${m}">${t}</button>`).join("")}</div>
+      <div class="mc-cl-talle"><span>Spegni alle</span><input type="time" data-tora><button type="button" data-talle>Imposta</button></div>
+      <div class="mc-cl-tnota">Spegne l'apparecchio, la presa resta accesa.</div>${msg}`;
+  }
+
+  _ctimerTocco(e) {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.hasAttribute("data-tannulla")) { this._ctimerAnnulla(); return; }
+    if (b.dataset.tfra) {
+      const d = new Date(Date.now() + parseInt(b.dataset.tfra, 10) * 60000);
+      this._ctimerImposta(String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"));
+      return;
+    }
+    if (b.hasAttribute("data-talle")) {
+      const i = this.querySelector(".mc-scrim [data-tora]");
+      if (i && i.value) this._ctimerImposta(i.value);
+      else { this._ctMsg = "Scrivi prima l'ora."; this._climaRidisegna(); }
+    }
+  }
+
+  async _ctimerImposta(ora) {
+    const id = this._ctimerId();
+    this._ctMsg = "";
+    try {
+      await this._hass.callApi("post", "config/automation/config/" + id, {
+        id,
+        alias: "Faber Home — spegni " + this._nomeSuo() + " (una volta)",
+        description: "Creato da Faber Home. Ordine singolo: spegne il clima, non la presa, e poi si disattiva da solo.",
+        mode: "single",
+        triggers: [{ trigger: "time", at: ora + ":00" }],
+        conditions: [],
+        actions: [
+          { action: "climate.set_hvac_mode", target: { entity_id: this._cfg.climate }, data: { hvac_mode: "off" } },
+          { action: "automation.turn_off", target: { entity_id: "{{ this.entity_id }}" }, data: { stop_actions: false } },
+        ],
+      });
+      this._ctOra = ora;
+      this._climaRidisegna();
+      // Un'automazione gia scattata e rimasta spenta va riaccesa, se no il nuovo
+      // orario resterebbe scritto ma non scatterebbe.
+      await new Promise(r => setTimeout(r, 900));
+      const ent = this._ctimerEntita();
+      if (ent && this._hass.states[ent].state !== "on") await this._hass.callService("automation", "turn_on", { entity_id: ent });
+    } catch (e) {
+      this._ctOra = null;
+      this._ctMsg = "Non sono riuscito a impostare il timer.";
+    }
+    this._climaRidisegna();
+  }
+
+  async _ctimerAnnulla() {
+    this._ctMsg = "";
+    try {
+      await this._hass.callApi("delete", "config/automation/config/" + this._ctimerId());
+      this._ctOra = null;
+    } catch (e) {
+      this._ctMsg = "Non sono riuscito ad annullare il timer.";
+    }
+    this._climaRidisegna();
   }
 
   _climaOnOff(dopo) {
@@ -2601,7 +2733,12 @@ class MiniCard extends HTMLElement {
     const acceso = c.state !== "off";
     const fai = () => {
       const id = this._cfg.climate;
-      if (acceso) this._hass.callService("climate", "set_hvac_mode", { entity_id: id, hvac_mode: "off" });
+      if (acceso) {
+        this._hass.callService("climate", "set_hvac_mode", { entity_id: id, hvac_mode: "off" });
+        // Spento a mano, il timer non serve piu: se restasse, spegnerebbe a
+        // quell'ora anche una riaccensione fatta dopo.
+        if (this._ctimerAttivo()) this._ctimerAnnulla();
+      }
       // Riparte col modo di prima, se l'apparecchio lo sa fare: scegliere noi
       // il primo della lista accenderebbe il fresco d'inverno.
       else if ((c.attributes.supported_features || 0) & 128) this._hass.callService("climate", "turn_on", { entity_id: id });
@@ -3453,6 +3590,7 @@ class MiniCard extends HTMLElement {
     const cfg = this._cfg;
     let ov = this.querySelector(".mc-scrim");
     if (!ov) { ov = document.createElement("div"); ov.className = "mc-scrim"; this.querySelector(".mc").appendChild(ov); }
+    if (this._clima()) this._ctimerLeggi();
     let period = "7";
     // null = nessun giorno scelto a mano -> mostra "Oggi" (l'ultima barra).
     let selectedIdx = null;
@@ -3491,7 +3629,8 @@ class MiniCard extends HTMLElement {
           <div class="mc-hero-name">${this._esc(cfg.name)}</div>
           <div class="mc-hero-state${on ? " on" : ""}">${this._stateText(on)}</div>
         </div>
-        ${this._clima() ? `<div class="mc-clima">${this._climaHTML()}</div>` : ""}
+        ${this._clima() ? `<div class="mc-clima">${this._climaHTML()}</div>
+          <div class="mc-cl-timer">${this._ctimerHTML()}</div>` : ""}
         ${actions.length ? `<div class="mc-actions-row">${actions.join("")}</div>` : ""}
         ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
 
@@ -3646,6 +3785,7 @@ class MiniCard extends HTMLElement {
       const q = sel => ov.querySelector(sel);
       if (q('[data-act="close"]')) q('[data-act="close"]').onclick = close;
       if (q(".mc-clima")) q(".mc-clima").onclick = e => this._climaTocco(e);
+      if (q(".mc-cl-timer")) q(".mc-cl-timer").onclick = e => this._ctimerTocco(e);
       if (q('[data-act="presa"]')) q('[data-act="presa"]').onclick = () => this._staccaPresa(close);
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
