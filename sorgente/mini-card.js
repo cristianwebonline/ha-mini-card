@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.57.0";
+const MC_VERSION = "1.58.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2368,6 +2368,8 @@ class MiniCard extends HTMLElement {
       .mc-cl-ttit{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800}
       .mc-cl-ttit span{flex:1;min-width:0}
       .mc-cl-ttit b{font-size:17px;font-weight:850}
+      .mc-cl-ttit small{display:block;font-size:12px;font-weight:700;color:var(--mc-muted);margin-top:2px}
+      .mc-cl-tazioni{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
       .mc-cl-tfra{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:10px}
       .mc-cl-talle{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;margin-top:9px;font-size:12.5px;font-weight:800}
       .mc-cl-talle input{width:100%;min-width:0;box-sizing:border-box;padding:9px 8px;border-radius:12px;font:inherit;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
@@ -2620,14 +2622,47 @@ class MiniCard extends HTMLElement {
     return "faber_clima_once_off_" + (this._cfg.climate || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase();
   }
 
+  // In casa ci sono migliaia di stati e questo gira a ogni aggiornamento: una
+  // volta trovata l'automazione si tiene, e se manca si riguarda ogni 30 secondi.
   _ctimerEntita() {
+    if (this._ctEnt && this._hass.states[this._ctEnt]) return this._ctEnt;
+    this._ctEnt = null;
+    if (Date.now() - (this._ctScan || 0) < 30000) return null;
+    this._ctScan = Date.now();
     const id = this._ctimerId();
-    return Object.keys(this._hass.states).find(e =>
+    this._ctEnt = Object.keys(this._hass.states).find(e =>
       e.startsWith("automation.") && this._hass.states[e].attributes.id === id) || null;
+    return this._ctEnt;
+  }
+
+  // La tessera deve sapere del timer anche senza aprirla, e anche se l'ha messo
+  // o tolto la card grande: quando l'automazione cambia, si rilegge l'orario.
+  _ctimerSync() {
+    if (!this._cfg.climate) return;
+    const e = this._ctimerEntita();
+    const firma = e ? this._hass.states[e].state : "";
+    if (firma === this._ctSync) return;
+    this._ctSync = firma;
+    if (firma === "on") this._ctimerLeggi();
+    else if (!this._ctScrivo) this._ctOra = null;
+  }
+
+  // Quanto manca, a parole. Un orario gia passato oggi vale per domani.
+  _ctimerMinuti() {
+    const [h, m] = String(this._ctOra || "0:0").split(":").map(Number);
+    const d = new Date();
+    return ((h * 60 + m - (d.getHours() * 60 + d.getMinutes())) % 1440 + 1440) % 1440;
+  }
+
+  _ctimerFra() {
+    const n = this._ctimerMinuti();
+    if (n < 1) return "tra meno di un minuto";
+    if (n < 60) return "tra " + n + " min";
+    const r = n % 60;
+    return "tra " + Math.floor(n / 60) + " h" + (r ? " " + String(r).padStart(2, "0") : "");
   }
 
   async _ctimerLeggi() {
-    this._ctOra = null;
     try {
       const c = await this._hass.callApi("get", "config/automation/config/" + this._ctimerId());
       const t = ((c && (c.triggers || c.trigger)) || [])[0];
@@ -2648,7 +2683,11 @@ class MiniCard extends HTMLElement {
   _ctimerFirma() {
     const c = this._clima();
     const puo = c && !this._climaGiu() && c.state !== "off";
-    return [puo ? 1 : 0, this._ctimerAttivo() ? this._ctOra : "", this._ctMsg || ""].join("|");
+    const att = this._ctimerAttivo();
+    // Mentre si sta cambiando l'orario il conto che scorre non deve ridisegnare,
+    // se no cancella quello che si sta scrivendo.
+    return [puo ? 1 : 0, att ? this._ctOra : "", this._ctMsg || "", this._ctModifica ? 1 : 0,
+      att && !this._ctModifica ? this._ctimerFra() : ""].join("|");
   }
 
   _ctimerHTML() {
@@ -2659,14 +2698,17 @@ class MiniCard extends HTMLElement {
         <button type="button" data-tannulla>Annulla</button></div>` : "";
     }
     const msg = this._ctMsg ? `<div class="mc-cl-tmsg">${this._esc(this._ctMsg)}</div>` : "";
-    if (this._ctimerAttivo()) {
-      return `<div class="mc-cl-ttit"><ha-icon icon="mdi:timer-outline"></ha-icon><span>Si spegne alle <b>${this._esc(this._ctOra)}</b></span>
-        <button type="button" data-tannulla>Annulla</button></div>${msg}`;
+    const attivo = this._ctimerAttivo();
+    if (attivo && !this._ctModifica) {
+      return `<div class="mc-cl-ttit"><ha-icon icon="mdi:timer-outline"></ha-icon><span>Si spegne alle <b>${this._esc(this._ctOra)}</b>
+        <small>${this._esc(this._ctimerFra())}</small></span></div>
+        <div class="mc-cl-tazioni"><button type="button" data-tmodifica>Modifica</button><button type="button" data-tannulla>Annulla il timer</button></div>${msg}`;
     }
-    return `<div class="mc-cl-ttit"><ha-icon icon="mdi:timer-outline"></ha-icon><span>Timer di spegnimento</span></div>
+    return `<div class="mc-cl-ttit"><ha-icon icon="mdi:timer-outline"></ha-icon><span>${attivo ? `Sposta il timer delle <b>${this._esc(this._ctOra)}</b>` : "Timer di spegnimento"}</span>
+        ${attivo ? `<button type="button" data-tresta>Lascia così</button>` : ""}</div>
       <div class="mc-cl-tfra">${[[30, "30 min"], [60, "1 ora"], [120, "2 ore"], [180, "3 ore"]].map(([m, t]) =>
         `<button type="button" data-tfra="${m}">${t}</button>`).join("")}</div>
-      <div class="mc-cl-talle"><span>Spegni alle</span><input type="time" data-tora><button type="button" data-talle>Imposta</button></div>
+      <div class="mc-cl-talle"><span>Spegni alle</span><input type="time" data-tora value="${attivo ? this._esc(this._ctOra) : ""}"><button type="button" data-talle>Imposta</button></div>
       <div class="mc-cl-tnota">Spegne l'apparecchio, la presa resta accesa.</div>${msg}`;
   }
 
@@ -2674,6 +2716,8 @@ class MiniCard extends HTMLElement {
     const b = e.target.closest("button");
     if (!b) return;
     if (b.hasAttribute("data-tannulla")) { this._ctimerAnnulla(); return; }
+    if (b.hasAttribute("data-tmodifica")) { this._ctModifica = true; this._climaRidisegna(); return; }
+    if (b.hasAttribute("data-tresta")) { this._ctModifica = false; this._climaRidisegna(); return; }
     if (b.dataset.tfra) {
       const d = new Date(Date.now() + parseInt(b.dataset.tfra, 10) * 60000);
       this._ctimerImposta(String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"));
@@ -2689,6 +2733,8 @@ class MiniCard extends HTMLElement {
   async _ctimerImposta(ora) {
     const id = this._ctimerId();
     this._ctMsg = "";
+    this._ctScrivo = true;
+    const primaOra = this._ctOra;
     try {
       await this._hass.callApi("post", "config/automation/config/" + id, {
         id,
@@ -2703,6 +2749,8 @@ class MiniCard extends HTMLElement {
         ],
       });
       this._ctOra = ora;
+      this._ctModifica = false;
+      this._ctScan = 0;
       this._climaRidisegna();
       // Un'automazione gia scattata e rimasta spenta va riaccesa, se no il nuovo
       // orario resterebbe scritto ma non scatterebbe.
@@ -2710,9 +2758,11 @@ class MiniCard extends HTMLElement {
       const ent = this._ctimerEntita();
       if (ent && this._hass.states[ent].state !== "on") await this._hass.callService("automation", "turn_on", { entity_id: ent });
     } catch (e) {
-      this._ctOra = null;
+      // Se stava cambiando un timer, quello vecchio resta valido.
+      this._ctOra = primaOra;
       this._ctMsg = "Non sono riuscito a impostare il timer.";
     }
+    this._ctScrivo = false;
     this._climaRidisegna();
   }
 
@@ -2721,6 +2771,7 @@ class MiniCard extends HTMLElement {
     try {
       await this._hass.callApi("delete", "config/automation/config/" + this._ctimerId());
       this._ctOra = null;
+      this._ctModifica = false;
     } catch (e) {
       this._ctMsg = "Non sono riuscito ad annullare il timer.";
     }
@@ -3372,6 +3423,7 @@ class MiniCard extends HTMLElement {
     if (cl) {
       if (cl.state === "unavailable" || cl.state === "unknown") return "Non risponde";
       if (cl.state === "off") return "Spento";
+      if (this._ctimerAttivo()) return "Si spegne " + this._ctimerFra();
       const v = cl.attributes.temperature;
       return (MC_CLIMA_MODI[cl.state] || [cl.state])[0] + (v != null ? " · " + this._fmt(v) + "°" : "");
     }
@@ -3482,6 +3534,7 @@ class MiniCard extends HTMLElement {
     if (!this._el) return;
     this._aggiornaTema();
     this._separaBatteria();
+    this._ctimerSync();
     this._climaRidisegna();
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
