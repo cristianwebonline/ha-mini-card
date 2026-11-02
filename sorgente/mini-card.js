@@ -5,7 +5,11 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.55.0";
+const MC_VERSION = "1.56.0";
+const MC_CLIMA_MODI = {
+  cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
+  auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
+};
 console.info(`%c MINI-CARD %c v${MC_VERSION} `,
   "color:#0b1f2b;background:#4fd1c5;font-weight:700;border-radius:4px 0 0 4px",
   "color:#d6fbf7;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1782,9 +1786,9 @@ class MiniCard extends HTMLElement {
       <div class="mc-accgruppo">Chiedi a ${this._esc(this._nomeSuo())}</div>
       <div class="mc-chips">${per.map(([k, t]) => `<button type="button" class="mc-chip${k === attuale ? " sel" : ""}"
         data-per="${k}">${t}</button>`).join("")}</div>
-      <div class="mc-chat">${chat || `<div class="mc-bolla mc-sua">Chiedimi quello che vuoi sui miei consumi.
+      <div class="mc-chat">${chat || `<div class="mc-bolla mc-sua">Chiedimi quello che vuoi sui miei consumi${this._clima() ? ", o come sono messo adesso" : ""}.
         Posso guardare indietro fino a dove arriva la memoria di Home Assistant.</div>`}</div>
-      <div class="mc-chips">${dom.map(([k, t]) => `<button type="button" class="mc-chip" data-dom="${k}">${t}</button>`).join("")}</div>
+      <div class="mc-chips">${this._clima() ? `<button type="button" class="mc-chip" data-cdom>Come sei messo adesso?</button>` : ""}${dom.map(([k, t]) => `<button type="button" class="mc-chip" data-dom="${k}">${t}</button>`).join("")}</div>
       <div class="mc-riga-chiedi">
         <input id="mc_chiedi" placeholder="scrivi: quanto hai consumato il 20 agosto?" autocomplete="off">
         <button type="button" class="mc-chip sel" data-invia>Chiedi</button>
@@ -2345,6 +2349,25 @@ class MiniCard extends HTMLElement {
       .mc-hero-name{font-size:19px;font-weight:850;color:var(--mc-ink);margin-top:8px}
       .mc-hero-state{font-size:13px;font-weight:700;color:var(--mc-muted)}
       .mc-hero-state.on{color:var(--mc-c-ok,#8ff0b4)}
+      .mc-clima{margin:16px 0 0;padding:14px;border-radius:18px;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.04);color:var(--mc-ink)}
+      .mc-cl-testa{display:flex;align-items:center;justify-content:space-between;gap:10px}
+      .mc-cl-stanza{font-size:13px;font-weight:700;color:var(--mc-muted);min-width:0}
+      .mc-cl-stanza b{font-size:20px;font-weight:850;color:var(--mc-ink)}
+      .mc-cl-power{display:flex;align-items:center;gap:6px;padding:11px 16px;border-radius:14px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;flex:none;
+        border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
+      .mc-cl-power.on{background:rgba(255,99,99,.16);border-color:rgba(255,99,99,.5)}
+      .mc-cl-temp{display:grid;grid-template-columns:56px minmax(0,1fr) 56px;align-items:center;gap:8px;margin-top:12px;text-align:center;font-size:14px;font-weight:700}
+      .mc-cl-temp b{font-size:32px;font-weight:850}
+      .mc-cl-temp small{display:block;font-size:11px;font-weight:700;color:var(--mc-muted)}
+      .mc-cl-temp button{height:56px;border-radius:16px;font:inherit;font-size:26px;font-weight:700;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.07);color:var(--mc-ink)}
+      .mc-cl-modi{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+      .mc-cl-modi button{flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:5px;padding:10px 8px;border-radius:13px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;
+        border:1px solid var(--mc-stroke);background:rgba(255,255,255,.05);color:var(--mc-ink)}
+      .mc-cl-modi button.sel{background:rgba(71,181,255,.2);border-color:rgba(71,181,255,.6)}
+      .mc-cl-avviso{display:flex;gap:8px;align-items:flex-start;font-size:13px;font-weight:700;line-height:1.35}
+      .mc.chiaro .mc-clima,.mc.chiaro .mc-cl-power,.mc.chiaro .mc-cl-temp button,.mc.chiaro .mc-cl-modi button{background:rgba(15,30,45,.055)}
+      .mc.chiaro .mc-cl-power.on{background:rgba(220,60,60,.13)}
+      .mc.chiaro .mc-cl-modi button.sel{background:rgba(52,140,205,.2)}
       .mc-actions-row{display:flex;gap:10px;margin:18px 0 6px}
       .mc-pill{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:13px 10px;border-radius:16px;
         font:inherit;font-size:13px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
@@ -2516,6 +2539,138 @@ class MiniCard extends HTMLElement {
     window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }
 
+  // ---- CLIMA E STUFE --------------------------------------------------------
+  // Se la tessera ha un climatizzatore, "acceso" e l'apparecchio e non la presa:
+  // staccare la corrente non e spegnerlo, e su una stufa a pellet che brucia
+  // sarebbe proprio la cosa da non fare. La presa ha il suo tasto a parte.
+  _clima() {
+    const id = this._cfg.climate;
+    return (id && this._hass && this._hass.states[id]) || null;
+  }
+
+  _climaGiu() {
+    const c = this._clima();
+    return !c || c.state === "unavailable" || c.state === "unknown";
+  }
+
+  _climaHTML() {
+    const c = this._clima();
+    if (!c) return "";
+    if (this._climaGiu()) {
+      return `<div class="mc-cl-avviso"><ha-icon icon="mdi:wifi-off"></ha-icon>
+        <span>${this._esc(this._nomeSuo())} non risponde: la presa ha corrente, ma l'apparecchio non è collegato. I comandi non arriverebbero.</span></div>`;
+    }
+    const a = c.attributes, f = a.supported_features || 0;
+    const acceso = c.state !== "off";
+    const modi = (a.hvac_modes || []).filter(x => x !== "off");
+    const stanza = this._num(this._cfg.temp) ?? a.current_temperature;
+    const puoT = (f & 1) && a.temperature != null && acceso && !["fan_only", "dry"].includes(c.state);
+    return `<div class="mc-cl-testa">
+        <div class="mc-cl-stanza">${stanza != null ? `<b>${this._fmt(stanza)}°</b> in stanza` : "Nessun sensore in stanza"}</div>
+        <button type="button" class="mc-cl-power${acceso ? " on" : ""}" data-cpower>
+          <ha-icon icon="mdi:power"></ha-icon>${acceso ? "Spegni" : "Accendi"}</button>
+      </div>
+      ${puoT ? `<div class="mc-cl-temp">
+        <button type="button" data-ct="-" aria-label="Meno">&minus;</button>
+        <div><b>${this._fmt(this._climaObiettivo())}</b>°C<small>impostata</small></div>
+        <button type="button" data-ct="+" aria-label="Più">+</button>
+      </div>` : ""}
+      ${modi.length > 1 ? `<div class="mc-cl-modi">${modi.map(k => {
+        const m = MC_CLIMA_MODI[k] || [k, "mdi:circle-outline"];
+        return `<button type="button" class="${c.state === k ? "sel" : ""}" data-cm="${this._esc(k)}"><ha-icon icon="${m[1]}"></ha-icon>${this._esc(m[0])}</button>`;
+      }).join("")}</div>` : ""}`;
+  }
+
+  // Col cloud lo stato torna in ritardo: due tocchi veloci su + devono fare due
+  // gradi, non ripartire due volte dallo stesso numero.
+  _climaObiettivo() {
+    const a = this._clima().attributes;
+    return this._ctV != null && Date.now() - this._ctTs < 5000 ? this._ctV : a.temperature;
+  }
+
+  _climaRidisegna() {
+    const box = this.querySelector(".mc-scrim .mc-clima");
+    if (!box) return;
+    const html = this._climaHTML();
+    if (html !== box._html) { box._html = html; box.innerHTML = html; }
+  }
+
+  _climaOnOff(dopo) {
+    if (this._climaGiu()) return;
+    const c = this._clima();
+    const acceso = c.state !== "off";
+    const fai = () => {
+      const id = this._cfg.climate;
+      if (acceso) this._hass.callService("climate", "set_hvac_mode", { entity_id: id, hvac_mode: "off" });
+      // Riparte col modo di prima, se l'apparecchio lo sa fare: scegliere noi
+      // il primo della lista accenderebbe il fresco d'inverno.
+      else if ((c.attributes.supported_features || 0) & 128) this._hass.callService("climate", "turn_on", { entity_id: id });
+      else {
+        const m = (c.attributes.hvac_modes || []).find(x => x !== "off");
+        if (m) this._hass.callService("climate", "set_hvac_mode", { entity_id: id, hvac_mode: m });
+      }
+      if (dopo) dopo();
+    };
+    if (this._cfg.conferma_accensione === false) { fai(); return; }
+    const nome = this._nomeSuo();
+    this._confirm({ titolo: acceso ? `Spegnere ${nome}?` : `Accendere ${nome}?`, azione: acceso ? "Spegni" : "Accendi", acceso }, fai);
+  }
+
+  _climaTocco(e) {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.hasAttribute("data-cpower")) { this._climaOnOff(); return; }
+    const id = this._cfg.climate;
+    if (b.dataset.cm) { this._hass.callService("climate", "set_hvac_mode", { entity_id: id, hvac_mode: b.dataset.cm }); return; }
+    if (b.dataset.ct) {
+      const a = this._clima().attributes;
+      // Un passo da 0,1 gradi vorrebbe dire dieci tocchi per un mezzo grado.
+      const passo = Math.max(parseFloat(a.target_temp_step) || 0.5, 0.5);
+      const d = b.dataset.ct === "+" ? passo : -passo;
+      const v = Math.min(a.max_temp ?? 35, Math.max(a.min_temp ?? 7, this._climaObiettivo() + d));
+      this._ctV = Math.round(v * 10) / 10;
+      this._ctTs = Date.now();
+      this._hass.callService("climate", "set_temperature", { entity_id: id, temperature: this._ctV });
+      this._climaRidisegna();
+    }
+  }
+
+  _staccaPresa(chiudi) {
+    const c = this._clima();
+    const acceso = c && !["off", "unavailable", "unknown"].includes(c.state);
+    const stufa = /pellet/i.test(this._nomeSuo() + " " + this._cfg.climate);
+    this._confirm({
+      titolo: `Staccare la presa di ${this._nomeSuo()}?`,
+      sotto: acceso && stufa ? "È ancora accesa: spegnila prima e aspetta che si raffreddi. Senza corrente la stufa non può finire lo spegnimento."
+        : acceso ? "È ancora acceso: senza corrente si ferma di colpo." : "La tessera sparirà finché la presa non torna accesa.",
+      azione: "Stacca", acceso: true,
+    }, () => {
+      const id = this._cfg.switch;
+      this._hass.callService(id.split(".")[0], "turn_off", { entity_id: id });
+      if (chiudi) chiudi();
+    });
+  }
+
+  _eDomandaClima(t) {
+    if (!this._clima()) return false;
+    const x = " " + t.toLowerCase() + " ";
+    if (/quante volte|consum|cost|spes|euro|kwh|\bieri\b|settimana|\bmese\b/.test(x)) return false;
+    return /temperatur|gradi|fa caldo|fa freddo|sei acces|sei spent|come stai|come sei|che modo|stai scaldando|stai raffreddando/.test(x);
+  }
+
+  // Solo quello che l'apparecchio dice adesso: niente di stimato.
+  _rispostaClima() {
+    const c = this._clima();
+    if (!c || this._climaGiu()) return "Adesso non rispondo: la presa ha corrente, ma non sono collegato.";
+    const a = c.attributes;
+    const stanza = this._num(this._cfg.temp) ?? a.current_temperature;
+    const w = this._num(this._cfg.power);
+    const r = [c.state === "off" ? "Sono spento." : `Sono acceso, in modo <b>${this._esc((MC_CLIMA_MODI[c.state] || [c.state])[0])}</b>${a.temperature != null ? `, impostato a <b>${this._fmt(a.temperature)}°</b>` : ""}.`];
+    r.push(stanza != null ? `In stanza ci sono ${this._fmt(stanza)}°.` : "Non ho un sensore della temperatura in stanza.");
+    if (w != null) r.push(`Adesso tiro ${Math.round(w)} W.`);
+    return r.join(" ");
+  }
+
   // Priorità: un climatizzatore configurato vince su tutto perché la finestra
   // "informazioni" nativa di HA per un'entità climate È GIÀ un telecomando
   // completo (temperatura, modalità, ventola) — non serve costruircene uno.
@@ -2547,6 +2702,7 @@ class MiniCard extends HTMLElement {
   // l'opzione esistesse non hanno il campo salvato e devono comportarsi
   // come le nuove.
   _toggleChiesto(dopo) {
+    if (this._clima()) { this._climaOnOff(dopo); return; }
     const fatto = () => { this._toggle(); if (dopo) dopo(); };
     if (this._cfg.conferma_accensione === false) { fatto(); return; }
     const acceso = this._isOn();
@@ -2859,6 +3015,8 @@ class MiniCard extends HTMLElement {
   // vince se configurata, altrimenti la potenza sopra soglia.
   _isOn() {
     const cfg = this._cfg;
+    const cl = this._clima();
+    if (cl) return !["off", "unavailable", "unknown"].includes(cl.state);
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
     if (sw) return this._acceso(sw);
@@ -3073,6 +3231,13 @@ class MiniCard extends HTMLElement {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     if (cfg.mode === "room") return cfg.path ? "Apri la vista →" : "";
+    const cl = this._clima();
+    if (cl) {
+      if (cl.state === "unavailable" || cl.state === "unknown") return "Non risponde";
+      if (cl.state === "off") return "Spento";
+      const v = cl.attributes.temperature;
+      return (MC_CLIMA_MODI[cl.state] || [cl.state])[0] + (v != null ? " · " + this._fmt(v) + "°" : "");
+    }
     const c = this._comando();
     const st = this._stato();
     // Con presa E potenza si sa tutto: se ha corrente e se sta lavorando.
@@ -3180,6 +3345,7 @@ class MiniCard extends HTMLElement {
     if (!this._el) return;
     this._aggiornaTema();
     this._separaBatteria();
+    this._climaRidisegna();
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
@@ -3227,7 +3393,8 @@ class MiniCard extends HTMLElement {
       badge.dataset.on = on ? "1" : "0";
       // Anche qui: "Accesa" da solo sembrava riferito all'apparecchio.
       const cmd = this._comando();
-      badge.querySelector(".lbl").textContent = cmd ? (on ? cmd.on : cmd.off) : (on ? "Accesa" : "Spenta");
+      badge.querySelector(".lbl").textContent = this._clima() ? (on ? "Acceso" : "Spento")
+        : cmd ? (on ? cmd.on : cmd.off) : (on ? "Accesa" : "Spenta");
     } else badge.hidden = true;
 
     const metricWrap = this._el.querySelector('[data-role="metricwrap"]');
@@ -3301,8 +3468,12 @@ class MiniCard extends HTMLElement {
       // e visto. mdi:power e un disegno vero, non un carattere che dipende
       // da quali simboli il sistema ha deciso di includere: si vede uguale
       // dappertutto, come tutte le altre icone di questo pannello.
-      if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle"><ha-icon icon="mdi:power"></ha-icon> ${on ? "Spegni" : "Accendi"}</button>`);
-      if (this._priorityEntity()) actions.push(`<button class="mc-pill" data-act="info">⚙ Informazioni</button>`);
+      // Con un clima il tasto di accensione vero sta nel suo riquadro: qui resta
+      // la corrente, che e un'altra cosa, e la scheda completa di Home Assistant.
+      const conClima = !!this._clima();
+      if (conClima && cfg.switch) actions.push(`<button class="mc-pill" data-act="presa"><ha-icon icon="mdi:power-plug-off"></ha-icon> Stacca la presa</button>`);
+      else if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle"><ha-icon icon="mdi:power"></ha-icon> ${on ? "Spegni" : "Accendi"}</button>`);
+      if (this._priorityEntity()) actions.push(`<button class="mc-pill" data-act="info">⚙ ${conClima ? "Altri comandi" : "Informazioni"}</button>`);
       // IL LIBRETTO DELL'APPARECCHIO. Stava in una tessera a parte che
       // occupava mezza riga della stanza: qui e accanto ad Accendi e
       // Informazioni, dove uno lo cerca, e non ruba spazio a niente.
@@ -3320,6 +3491,7 @@ class MiniCard extends HTMLElement {
           <div class="mc-hero-name">${this._esc(cfg.name)}</div>
           <div class="mc-hero-state${on ? " on" : ""}">${this._stateText(on)}</div>
         </div>
+        ${this._clima() ? `<div class="mc-clima">${this._climaHTML()}</div>` : ""}
         ${actions.length ? `<div class="mc-actions-row">${actions.join("")}</div>` : ""}
         ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
 
@@ -3378,11 +3550,19 @@ class MiniCard extends HTMLElement {
           this._q = this._capisci(el.textContent.trim());
           chiedi(el.dataset.dom, el.textContent.trim());
         });
+        const climaDice = testo => {
+          this._chat = this._chat || [];
+          this._chat.push({ chi: "io", t: testo });
+          this._chat.push({ chi: "lui", t: this._rispostaClima() });
+          render();
+        };
+        ov.querySelectorAll("[data-cdom]").forEach(el => el.onclick = () => climaDice(el.textContent.trim()));
         const inviaTesto = () => {
           const inp = ov.querySelector("#mc_chiedi");
           const testo = (inp.value || "").trim();
           if (!testo) return;
           inp.value = "";
+          if (this._eDomandaClima(testo)) { climaDice(testo); return; }
           const c = this._capisci(testo);
           if (!c.intento && (c.dubbio || !c.periodo)) {
             this._chat = this._chat || [];
@@ -3465,6 +3645,8 @@ class MiniCard extends HTMLElement {
       const close = () => { ov.classList.remove("on"); azzera(); };
       const q = sel => ov.querySelector(sel);
       if (q('[data-act="close"]')) q('[data-act="close"]').onclick = close;
+      if (q(".mc-clima")) q(".mc-clima").onclick = e => this._climaTocco(e);
+      if (q('[data-act="presa"]')) q('[data-act="presa"]').onclick = () => this._staccaPresa(close);
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
       if (q('[data-act="info"]')) q('[data-act="info"]').onclick = () => { close(); this._openMoreInfo(); };
