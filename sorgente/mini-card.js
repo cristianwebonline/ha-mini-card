@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.58.0";
+const MC_VERSION = "1.59.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2641,9 +2641,12 @@ class MiniCard extends HTMLElement {
     if (!this._cfg.climate) return;
     const e = this._ctimerEntita();
     const firma = e ? this._hass.states[e].state : "";
-    if (firma === this._ctSync) return;
+    // Spostare l'orario dalla card grande lascia l'automazione accesa: dallo
+    // stato non si vede, quindi se e attiva si rilegge ogni minuto.
+    const scaduta = firma === "on" && Date.now() - (this._ctLetta || 0) > 60000;
+    if (firma === this._ctSync && !scaduta) return;
     this._ctSync = firma;
-    if (firma === "on") this._ctimerLeggi();
+    if (firma === "on") { this._ctLetta = Date.now(); this._ctimerLeggi(); }
     else if (!this._ctScrivo) this._ctOra = null;
   }
 
