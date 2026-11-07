@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.59.0";
+const MC_VERSION = "1.60.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2380,6 +2380,31 @@ class MiniCard extends HTMLElement {
       .mc.chiaro .mc-clima,.mc.chiaro .mc-cl-power,.mc.chiaro .mc-cl-temp button,.mc.chiaro .mc-cl-modi button{background:rgba(15,30,45,.055)}
       .mc.chiaro .mc-cl-power.on{background:rgba(220,60,60,.13)}
       .mc.chiaro .mc-cl-modi button.sel{background:rgba(52,140,205,.2)}
+      /* Regolazioni della luce: stesso riquadro del clima. Le barre sono input
+         range veri (col dito e col mouse), larghe e alte per il pollice. */
+      .mc-luce{margin:16px 0 0;padding:14px;border-radius:18px;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.04);color:var(--mc-ink)}
+      .mc-lu-testa{display:flex;align-items:center;gap:10px}
+      .mc-lu-pallino{width:30px;height:30px;border-radius:50%;flex:none;border:2px solid rgba(255,255,255,.35)}
+      .mc-lu-testa div{flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--mc-muted)}
+      .mc-lu-testa b{display:block;font-size:20px;font-weight:850;color:var(--mc-ink)}
+      .mc-lu-gruppo{margin-top:14px;font-size:12px;font-weight:800;color:var(--mc-muted);display:flex;justify-content:space-between}
+      .mc-lu-gruppo b{color:var(--mc-ink)}
+      .mc-lu-range{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;height:34px;margin:8px 0 0;border-radius:17px;
+        border:1px solid var(--mc-stroke);outline:none;cursor:pointer;box-sizing:border-box}
+      .mc-lu-range::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:50%;background:#fff;border:3px solid rgba(0,0,0,.35);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+      .mc-lu-range::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid rgba(0,0,0,.35)}
+      .mc-lu-rapidi{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
+      .mc-lu-rapidi button,.mc-lu-eff button{padding:9px 4px;border-radius:12px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;
+        border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
+      .mc-lu-tav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:8px}
+      .mc-lu-tav button{aspect-ratio:1;border-radius:50%;cursor:pointer;border:2px solid rgba(255,255,255,.18);padding:0;min-width:0}
+      .mc-lu-tav button.sel{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+      .mc-lu-eff{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+      .mc-lu-eff button{flex:1 1 auto}
+      .mc-lu-eff button.sel,.mc-lu-rapidi button.sel{background:rgba(255,200,80,.2);border-color:rgba(255,200,80,.6)}
+      .mc.chiaro .mc-luce,.mc.chiaro .mc-lu-rapidi button,.mc.chiaro .mc-lu-eff button{background:rgba(15,30,45,.055)}
+      .mc.chiaro .mc-lu-tav button{border-color:rgba(15,30,45,.18)}
+      .mc.chiaro .mc-lu-tav button.sel{border-color:#1b2a3a;box-shadow:0 0 0 3px rgba(15,30,45,.2)}
       .mc-actions-row{display:flex;gap:10px;margin:18px 0 6px}
       .mc-pill{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:13px 10px;border-radius:16px;
         font:inherit;font-size:13px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
@@ -2611,6 +2636,134 @@ class MiniCard extends HTMLElement {
     const tb = this.querySelector(".mc-scrim .mc-cl-timer");
     const firma = this._ctimerFirma();
     if (tb && firma !== this._ctFirma) { this._ctFirma = firma; tb.innerHTML = this._ctimerHTML(); }
+  }
+
+  // ---- LUCI CON REGOLAZIONI -------------------------------------------------
+  // Se l'interruttore della tessera e una luce che sa fare piu di accendersi
+  // (luminosita, colori, bianchi, effetti), il foglio mostra le sue barre.
+  // Si mostra solo quello che la luce dichiara di saper fare.
+  _luce() {
+    const id = this._cfg.switch;
+    if (!id || !id.startsWith("light.") || this._clima() || !this._hass) return null;
+    const st = this._hass.states[id];
+    if (!st) return null;
+    const modi = st.attributes.supported_color_modes || [];
+    return modi.some(m => m !== "onoff") || (st.attributes.effect_list || []).length ? st : null;
+  }
+
+  // Le luci Bluetooth rispondono dopo qualche secondo: per 6 secondi vale il
+  // valore appena scelto, se no la barra tornerebbe indietro e poi avanti.
+  _luVal(k, vero) {
+    const v = this._luV && this._luV[k];
+    return v && Date.now() - v.ts < 6000 ? v.v : vero;
+  }
+
+  _luceHTML() {
+    const st = this._luce();
+    if (!st) return "";
+    if (st.state === "unavailable" || st.state === "unknown") {
+      return `<div class="mc-cl-avviso"><ha-icon icon="mdi:lightbulb-off-outline"></ha-icon>
+        <span>${this._esc(this._nomeSuo())} non risponde: è senza corrente o troppo lontana. I comandi non arriverebbero.</span></div>`;
+    }
+    const a = st.attributes, modi = a.supported_color_modes || [];
+    const acceso = st.state === "on";
+    const conLum = modi.some(m => m !== "onoff");
+    const conColori = modi.some(m => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m));
+    const conBianchi = modi.includes("color_temp");
+    const lum = Math.round(this._luVal("lum", a.brightness != null ? a.brightness / 2.55 : 100));
+    const hs = a.hs_color || [0, 0];
+    const h = Math.round(this._luVal("h", hs[0])), s = Math.round(this._luVal("s", hs[1]));
+    const rgb = this._luVal("rgb", a.rgb_color || [255, 255, 255]);
+    const colore = `rgb(${rgb.join(",")})`;
+    const tinta = `hsl(${h},100%,50%)`;
+    const kMin = a.min_color_temp_kelvin || 2000, kMax = a.max_color_temp_kelvin || 6500;
+    const k = Math.round(this._luVal("k", a.color_temp_kelvin || Math.round((kMin + kMax) / 2)));
+    const tav = [["Bianco", [255, 255, 255]], ["Caldo", [255, 176, 96]], ["Rosso", [255, 0, 0]], ["Arancio", [255, 110, 0]],
+      ["Giallo", [255, 214, 0]], ["Verde", [0, 230, 64]], ["Azzurro", [0, 190, 255]], ["Blu", [0, 50, 255]],
+      ["Viola", [150, 0, 255]], ["Rosa", [255, 0, 140]]];
+    const uguale = c => c.every((x, i) => Math.abs(x - rgb[i]) < 8);
+    const eff = a.effect_list || [];
+    return `<div class="mc-lu-testa">
+        <span class="mc-lu-pallino" style="background:${acceso ? colore : "rgba(255,255,255,.08)"}"></span>
+        <div><b>${acceso ? (conLum ? lum + "%" : "Accesa") : "Spenta"}</b>${acceso && conColori ? "colore attuale" : acceso ? "luminosità" : "tocca un colore o la luminosità per accenderla"}</div>
+      </div>
+      ${conLum ? `<div class="mc-lu-gruppo"><span>Luminosità</span><b data-lu-lab="lum">${lum}%</b></div>
+        <input type="range" class="mc-lu-range" data-lu="lum" min="1" max="100" step="1" value="${lum}" aria-label="Luminosità"
+          style="background:linear-gradient(90deg,#111,${acceso && conColori ? colore : "#ffe7b0"})">
+        <div class="mc-lu-rapidi">${[10, 25, 50, 75, 100].map(p =>
+          `<button type="button" data-lup="${p}" class="${acceso && Math.abs(lum - p) < 3 ? "sel" : ""}">${p === 10 ? "Notte" : p + "%"}</button>`).join("")}</div>` : ""}
+      ${conColori ? `<div class="mc-lu-gruppo"><span>Colore</span></div>
+        <div class="mc-lu-tav">${tav.map(([n, c]) =>
+          `<button type="button" data-lurgb="${c.join(",")}" title="${n}" aria-label="${n}" class="${acceso && uguale(c) ? "sel" : ""}" style="background:rgb(${c.join(",")})"></button>`).join("")}</div>
+        <div class="mc-lu-gruppo"><span>Tinta</span><b data-lu-lab="h">${h}°</b></div>
+        <input type="range" class="mc-lu-range" data-lu="h" min="0" max="360" step="1" value="${h}" aria-label="Tinta"
+          style="background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)">
+        <div class="mc-lu-gruppo"><span>Forza del colore</span><b data-lu-lab="s">${s}%</b></div>
+        <input type="range" class="mc-lu-range" data-lu="s" min="0" max="100" step="1" value="${s}" aria-label="Forza del colore"
+          style="background:linear-gradient(90deg,#fff,${tinta})">` : ""}
+      ${conBianchi ? `<div class="mc-lu-gruppo"><span>Bianco caldo / freddo</span><b data-lu-lab="k">${k} K</b></div>
+        <input type="range" class="mc-lu-range" data-lu="k" min="${kMin}" max="${kMax}" step="50" value="${k}" aria-label="Bianco caldo o freddo"
+          style="background:linear-gradient(90deg,#ffb15e,#fff4e5,#cfe3ff)">` : ""}
+      ${eff.length ? `<div class="mc-lu-gruppo"><span>Effetti</span></div>
+        <div class="mc-lu-eff">${eff.map(e =>
+          `<button type="button" data-lueff="${this._esc(e)}" class="${a.effect === e ? "sel" : ""}">${this._esc(e)}</button>`).join("")}</div>` : ""}`;
+  }
+
+  _luceRidisegna() {
+    const box = this.querySelector(".mc-scrim .mc-luce");
+    if (!box || (this._luDrag && Date.now() - this._luDrag < 4000)) return;
+    const html = this._luceHTML();
+    if (html !== box._html) { box._html = html; box.innerHTML = html; }
+  }
+
+  _luceManda(dati, ricorda) {
+    this._luV = this._luV || {};
+    Object.entries(ricorda || {}).forEach(([k, v]) => { this._luV[k] = { v, ts: Date.now() }; });
+    this._hass.callService("light", "turn_on", Object.assign({ entity_id: this._cfg.switch }, dati))
+      .catch(err => {
+        this._luV = {};
+        this._luceRidisegna();
+        const box = this.querySelector(".mc-scrim .mc-luce");
+        if (box) box.insertAdjacentHTML("beforeend", `<div class="mc-cl-tmsg">Non ha risposto: ${this._esc(err && err.message || "errore")}</div>`);
+      });
+    this._luceRidisegna();
+  }
+
+  _luceTocco(e) {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.lup) { const p = +b.dataset.lup; this._luceManda({ brightness_pct: p }, { lum: p }); return; }
+    if (b.dataset.lurgb) {
+      const c = b.dataset.lurgb.split(",").map(Number);
+      this._luceManda({ rgb_color: c }, { rgb: c });
+      return;
+    }
+    if (b.dataset.lueff) this._luceManda({ effect: b.dataset.lueff });
+  }
+
+  // Mentre il dito scorre si aggiorna solo la scritta; il comando parte quando
+  // si lascia la barra (una luce Bluetooth non regge un comando a ogni pixel).
+  _luceScorre(e, finito) {
+    const r = e.target.closest("[data-lu]");
+    if (!r) return;
+    const k = r.dataset.lu, v = +r.value;
+    const lab = this.querySelector(`.mc-scrim [data-lu-lab="${k}"]`);
+    if (lab) lab.textContent = k === "k" ? v + " K" : k === "h" ? v + "°" : v + "%";
+    if (!finito) { this._luDrag = Date.now(); return; }
+    this._luDrag = 0;
+    if (k === "lum") this._luceManda({ brightness_pct: v }, { lum: v });
+    else if (k === "k") this._luceManda({ color_temp_kelvin: v }, { k: v });
+    else {
+      const box = this.querySelector(".mc-scrim .mc-luce");
+      const h = +box.querySelector('[data-lu="h"]').value, s = +box.querySelector('[data-lu="s"]').value;
+      this._luceManda({ hs_color: [h, s] }, { h, s, rgb: this._hsRgb(h, s) });
+    }
+  }
+
+  _hsRgb(h, s) {
+    s /= 100;
+    const f = n => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - s * Math.max(0, Math.min(k, 4 - k, 1)))); };
+    return [f(5), f(3), f(1)];
   }
 
   // ---- timer di spegnimento del clima ---------------------------------------
@@ -3539,6 +3692,7 @@ class MiniCard extends HTMLElement {
     this._separaBatteria();
     this._ctimerSync();
     this._climaRidisegna();
+    this._luceRidisegna();
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
@@ -3687,6 +3841,7 @@ class MiniCard extends HTMLElement {
         </div>
         ${this._clima() ? `<div class="mc-clima">${this._climaHTML()}</div>
           <div class="mc-cl-timer">${this._ctimerHTML()}</div>` : ""}
+        ${this._luce() ? `<div class="mc-luce">${this._luceHTML()}</div>` : ""}
         ${actions.length ? `<div class="mc-actions-row">${actions.join("")}</div>` : ""}
         ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
 
@@ -3842,6 +3997,12 @@ class MiniCard extends HTMLElement {
       if (q('[data-act="close"]')) q('[data-act="close"]').onclick = close;
       if (q(".mc-clima")) q(".mc-clima").onclick = e => this._climaTocco(e);
       if (q(".mc-cl-timer")) q(".mc-cl-timer").onclick = e => this._ctimerTocco(e);
+      if (q(".mc-luce")) {
+        const lu = q(".mc-luce");
+        lu.onclick = e => this._luceTocco(e);
+        lu.oninput = e => this._luceScorre(e, false);
+        lu.onchange = e => this._luceScorre(e, true);
+      }
       if (q('[data-act="presa"]')) q('[data-act="presa"]').onclick = () => this._staccaPresa(close);
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
