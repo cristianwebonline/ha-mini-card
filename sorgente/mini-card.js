@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.60.0";
+const MC_VERSION = "1.61.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2397,14 +2397,18 @@ class MiniCard extends HTMLElement {
       .mc-lu-rapidi button,.mc-lu-eff button{padding:9px 4px;border-radius:12px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;
         border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
       .mc-lu-tav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:8px}
-      .mc-lu-tav button{aspect-ratio:1;border-radius:50%;cursor:pointer;border:2px solid rgba(255,255,255,.18);padding:0;min-width:0}
-      .mc-lu-tav button.sel{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+      /* 07/11/26: col solo pallino Cristian non trovava il blu: ora ogni colore ha il suo nome sotto */
+      .mc-lu-tav button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:0;min-width:0;background:none;border:none;cursor:pointer;color:var(--mc-ink);font:inherit}
+      .mc-lu-tav i{display:block;width:100%;aspect-ratio:1;border-radius:50%;border:2px solid rgba(255,255,255,.18);box-sizing:border-box}
+      .mc-lu-tav span{font-size:11px;font-weight:800;color:var(--mc-muted)}
+      .mc-lu-tav button.sel i{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+      .mc-lu-tav button.sel span{color:var(--mc-ink)}
       .mc-lu-eff{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
       .mc-lu-eff button{flex:1 1 auto}
       .mc-lu-eff button.sel,.mc-lu-rapidi button.sel{background:rgba(255,200,80,.2);border-color:rgba(255,200,80,.6)}
       .mc.chiaro .mc-luce,.mc.chiaro .mc-lu-rapidi button,.mc.chiaro .mc-lu-eff button{background:rgba(15,30,45,.055)}
-      .mc.chiaro .mc-lu-tav button{border-color:rgba(15,30,45,.18)}
-      .mc.chiaro .mc-lu-tav button.sel{border-color:#1b2a3a;box-shadow:0 0 0 3px rgba(15,30,45,.2)}
+      .mc.chiaro .mc-lu-tav i{border-color:rgba(15,30,45,.18)}
+      .mc.chiaro .mc-lu-tav button.sel i{border-color:#1b2a3a;box-shadow:0 0 0 3px rgba(15,30,45,.2)}
       .mc-actions-row{display:flex;gap:10px;margin:18px 0 6px}
       .mc-pill{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:13px 10px;border-radius:16px;
         font:inherit;font-size:13px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
@@ -2679,7 +2683,7 @@ class MiniCard extends HTMLElement {
     const kMin = a.min_color_temp_kelvin || 2000, kMax = a.max_color_temp_kelvin || 6500;
     const k = Math.round(this._luVal("k", a.color_temp_kelvin || Math.round((kMin + kMax) / 2)));
     const tav = [["Bianco", [255, 255, 255]], ["Caldo", [255, 176, 96]], ["Rosso", [255, 0, 0]], ["Arancio", [255, 110, 0]],
-      ["Giallo", [255, 214, 0]], ["Verde", [0, 230, 64]], ["Azzurro", [0, 190, 255]], ["Blu", [0, 50, 255]],
+      ["Giallo", [255, 214, 0]], ["Verde", [0, 230, 64]], ["Azzurro", [0, 190, 255]], ["Blu", [0, 0, 255]],
       ["Viola", [150, 0, 255]], ["Rosa", [255, 0, 140]]];
     const uguale = c => c.every((x, i) => Math.abs(x - rgb[i]) < 8);
     const eff = a.effect_list || [];
@@ -2694,7 +2698,7 @@ class MiniCard extends HTMLElement {
           `<button type="button" data-lup="${p}" class="${acceso && Math.abs(lum - p) < 3 ? "sel" : ""}">${p === 10 ? "Notte" : p + "%"}</button>`).join("")}</div>` : ""}
       ${conColori ? `<div class="mc-lu-gruppo"><span>Colore</span></div>
         <div class="mc-lu-tav">${tav.map(([n, c]) =>
-          `<button type="button" data-lurgb="${c.join(",")}" title="${n}" aria-label="${n}" class="${acceso && uguale(c) ? "sel" : ""}" style="background:rgb(${c.join(",")})"></button>`).join("")}</div>
+          `<button type="button" data-lurgb="${c.join(",")}" title="${n}" aria-label="${n}" class="${acceso && uguale(c) ? "sel" : ""}"><i style="background:rgb(${c.join(",")})"></i><span>${n}</span></button>`).join("")}</div>
         <div class="mc-lu-gruppo"><span>Tinta</span><b data-lu-lab="h">${h}°</b></div>
         <input type="range" class="mc-lu-range" data-lu="h" min="0" max="360" step="1" value="${h}" aria-label="Tinta"
           style="background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)">
