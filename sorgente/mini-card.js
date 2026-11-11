@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.61.0";
+const MC_VERSION = "1.62.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2972,11 +2972,12 @@ class MiniCard extends HTMLElement {
     if (b.dataset.cm) { this._hass.callService("climate", "set_hvac_mode", { entity_id: id, hvac_mode: b.dataset.cm }); return; }
     if (b.dataset.ct) {
       const a = this._clima().attributes;
-      // Un passo da 0,1 gradi vorrebbe dire dieci tocchi per un mezzo grado.
-      const passo = Math.max(parseFloat(a.target_temp_step) || 0.5, 0.5);
-      const d = b.dataset.ct === "+" ? passo : -passo;
-      const v = Math.min(a.max_temp ?? 35, Math.max(a.min_temp ?? 7, this._climaObiettivo() + d));
-      this._ctV = Math.round(v * 10) / 10;
+      // Cristian: + e - vanno sempre di 1 grado intero (23 -> 24), qualunque
+      // passo dichiari l'apparecchio. Da 23,5 il + porta a 24 e il - a 23.
+      const base = this._climaObiettivo();
+      const g = b.dataset.ct === "+" ? Math.floor(base + 1e-6) + 1 : Math.ceil(base - 1e-6) - 1;
+      const v = Math.min(a.max_temp ?? 35, Math.max(a.min_temp ?? 7, g));
+      this._ctV = v;
       this._ctTs = Date.now();
       this._hass.callService("climate", "set_temperature", { entity_id: id, temperature: this._ctV });
       this._climaRidisegna();
