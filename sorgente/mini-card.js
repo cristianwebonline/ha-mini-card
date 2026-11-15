@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.62.0";
+const MC_VERSION = "1.63.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2686,7 +2686,11 @@ class MiniCard extends HTMLElement {
       ["Giallo", [255, 214, 0]], ["Verde", [0, 230, 64]], ["Azzurro", [0, 190, 255]], ["Blu", [0, 0, 255]],
       ["Viola", [150, 0, 255]], ["Rosa", [255, 0, 140]]];
     const uguale = c => c.every((x, i) => Math.abs(x - rgb[i]) < 8);
-    const eff = a.effect_list || [];
+    // Luci a infrarossi (telecomando imparato dal Broadlink): la luce modello di
+    // HA non ha effetti, li porta un input_select scritto nella chiave `effetti`.
+    const effSel = !a.effect_list && this._cfg.effetti ? this._hass.states[this._cfg.effetti] : null;
+    const eff = a.effect_list || (effSel ? effSel.attributes.options || [] : []);
+    const effAtt = effSel ? effSel.state : a.effect;
     return `<div class="mc-lu-testa">
         <span class="mc-lu-pallino" style="background:${acceso ? colore : "rgba(255,255,255,.08)"}"></span>
         <div><b>${acceso ? (conLum ? lum + "%" : "Accesa") : "Spenta"}</b>${acceso && conColori ? "colore attuale" : acceso ? "luminosità" : "tocca un colore o la luminosità per accenderla"}</div>
@@ -2710,7 +2714,7 @@ class MiniCard extends HTMLElement {
           style="background:linear-gradient(90deg,#ffb15e,#fff4e5,#cfe3ff)">` : ""}
       ${eff.length ? `<div class="mc-lu-gruppo"><span>Effetti</span></div>
         <div class="mc-lu-eff">${eff.map(e =>
-          `<button type="button" data-lueff="${this._esc(e)}" class="${a.effect === e ? "sel" : ""}">${this._esc(e)}</button>`).join("")}</div>` : ""}`;
+          `<button type="button" data-lueff="${this._esc(e)}" class="${effAtt === e ? "sel" : ""}">${this._esc(e)}</button>`).join("")}</div>` : ""}`;
   }
 
   _luceRidisegna() {
@@ -2742,7 +2746,14 @@ class MiniCard extends HTMLElement {
       this._luceManda({ rgb_color: c }, { rgb: c });
       return;
     }
-    if (b.dataset.lueff) this._luceManda({ effect: b.dataset.lueff });
+    if (b.dataset.lueff) {
+      const st = this._luce();
+      if (st && !st.attributes.effect_list && this._cfg.effetti) {
+        this._hass.callService("input_select", "select_option", { entity_id: this._cfg.effetti, option: b.dataset.lueff });
+        return;
+      }
+      this._luceManda({ effect: b.dataset.lueff });
+    }
   }
 
   // Mentre il dito scorre si aggiorna solo la scritta; il comando parte quando
