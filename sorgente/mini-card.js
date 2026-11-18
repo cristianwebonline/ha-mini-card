@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.65.0";
+const MC_VERSION = "1.66.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2410,6 +2410,8 @@ class MiniCard extends HTMLElement {
       .mc.chiaro .mc-lu-tav i{border-color:rgba(15,30,45,.18)}
       .mc.chiaro .mc-lu-tav button.sel i{border-color:#1b2a3a;box-shadow:0 0 0 3px rgba(15,30,45,.2)}
       .mc-actions-row{display:flex;gap:10px;margin:18px 0 6px}
+      .mc-tasti-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0 6px}
+      .mc-tasti-grid .mc-pill{flex-direction:column;gap:4px;padding:11px 6px;font-size:12px;min-width:0}
       .mc-pill{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:13px 10px;border-radius:16px;
         font:inherit;font-size:13px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
       .mc-pill.on{background:linear-gradient(135deg,rgba(56,224,138,.28),rgba(56,224,138,.14));border-color:rgba(56,224,138,.5);color:var(--mc-c-ok,#8ff0b4)}
@@ -3061,6 +3063,24 @@ class MiniCard extends HTMLElement {
   // passa prima dal foglio; "!== false" perche le card create prima che
   // l'opzione esistesse non hanno il campo salvato e devono comportarsi
   // come le nuove.
+  _tastoManda(t, bt) {
+    if (!t || !this._hass) return;
+    const c = this._cfg;
+    if (t.entity) {
+      const d = t.entity.split(".")[0];
+      if (d === "button") this._hass.callService("button", "press", { entity_id: t.entity });
+      else this._hass.callService(d === "script" ? "script" : "homeassistant", "turn_on", { entity_id: t.entity });
+    } else if (c.remote && t.cmd) {
+      const dati = { entity_id: c.remote, command: t.cmd };
+      if (c.device) dati.device = c.device;
+      if (t.ripeti) dati.num_repeats = +t.ripeti;
+      if (t.pausa) dati.delay_secs = +t.pausa;
+      this._hass.callService("remote", "send_command", dati);
+    } else return;
+    if (navigator.vibrate) try { navigator.vibrate(10); } catch (e) {}
+    if (bt) { bt.classList.add("on"); setTimeout(() => bt.classList.remove("on"), 500); }
+  }
+
   _comandoManda(accendi, bt) {
     const id = this._cfg.comando;
     if (!id || !this._hass) return;
@@ -3407,7 +3427,12 @@ class MiniCard extends HTMLElement {
     if (cl) return !["off", "unavailable", "unknown"].includes(cl.state);
     if (this._comandoPrincipale()) {
       const s0 = this._hass.states[cfg.switch];
-      return !!(s0 && this._acceso(s0) && this._consumaOra(this._num(cfg.power), parseFloat(cfg.soglia) || 10));
+      if (!(s0 && this._acceso(s0))) return false;
+      // stato: chi si ricorda com'e l'apparecchio (un input_boolean girato dallo
+      // script del telecomando). Senza, vale il consumo sopra soglia.
+      const ss = cfg.stato && this._hass.states[cfg.stato];
+      if (ss) return ss.state === "on";
+      return this._consumaOra(this._num(cfg.power), parseFloat(cfg.soglia) || 10);
     }
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
@@ -3630,6 +3655,11 @@ class MiniCard extends HTMLElement {
       if (this._ctimerAttivo()) return "Si spegne " + this._ctimerFra();
       const v = cl.attributes.temperature;
       return (MC_CLIMA_MODI[cl.state] || [cl.state])[0] + (v != null ? " · " + this._fmt(v) + "°" : "");
+    }
+    if (this._comandoPrincipale()) {
+      const p0 = this._num(cfg.power);
+      return on ? "Accesa" + (p0 != null && p0 > (parseFloat(cfg.soglia) || 10) ? ` · ${Math.round(p0)} W` : "")
+        : "Spenta · presa accesa";
     }
     const c = this._comando();
     const st = this._stato();
@@ -3879,6 +3909,15 @@ class MiniCard extends HTMLElement {
       // tasti dell'apparecchio, per esempio la TV col telecomando a infrarossi,
       // che non dice se e accesa: per questo Accendi e Spegni sono due tasti.
       // Con la presa spenta non servono a niente e non si mostrano.
+      // REGOLAZIONI (18/11/26, Stufa camera, come il telecomando della plancia
+      // telefono): tasti: [{nome, icona, cmd}] mandati a remote + device, o
+      // {nome, icona, entity} per uno script/pulsante. Solo con la presa accesa.
+      const swOn = cfg.switch && this._hass.states[cfg.switch] && this._acceso(this._hass.states[cfg.switch]);
+      const tasti = Array.isArray(cfg.tasti) ? cfg.tasti : [];
+      const tastiHTML = [];
+      if (tasti.length && swOn) {
+        tasti.forEach((t, i) => tastiHTML.push(`<button class="mc-pill mc-tasto" data-tasto="${i}"><ha-icon icon="${this._esc(t.icona || "mdi:circle-medium")}"></ha-icon> ${this._esc(t.nome || "")}</button>`));
+      }
       if (cfg.comando && on && !this._comandoPrincipale()) {
         const cn = this._esc(cfg.comando_nome || "Apparecchio");
         actions.push(`<button class="mc-pill" data-act="cmd_on"><ha-icon icon="mdi:power"></ha-icon> Accendi ${cn}</button>`);
@@ -3906,6 +3945,7 @@ class MiniCard extends HTMLElement {
           <div class="mc-cl-timer">${this._ctimerHTML()}</div>` : ""}
         ${this._luce() ? `<div class="mc-luce">${this._luceHTML()}</div>` : ""}
         ${actions.length ? `<div class="mc-actions-row">${actions.join("")}</div>` : ""}
+        ${tastiHTML.length ? `<div class="mc-tasti-grid">${tastiHTML.join("")}</div>` : ""}
         ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
 
       if (!cfg.power) {
@@ -4069,6 +4109,9 @@ class MiniCard extends HTMLElement {
       if (q('[data-act="presa"]')) q('[data-act="presa"]').onclick = () => this._staccaPresa(close);
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
+      (this.querySelectorAll ? [...this.querySelectorAll("[data-tasto]")] : []).forEach(bt => {
+        bt.onclick = () => this._tastoManda((this._cfg.tasti || [])[+bt.dataset.tasto], bt);
+      });
       ["cmd_on", "cmd_off"].forEach(k => {
         const bt = q(`[data-act="${k}"]`);
         if (bt) bt.onclick = () => this._comandoManda(k === "cmd_on", bt);
