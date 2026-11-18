@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.63.0";
+const MC_VERSION = "1.64.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -3061,6 +3061,19 @@ class MiniCard extends HTMLElement {
   // passa prima dal foglio; "!== false" perche le card create prima che
   // l'opzione esistesse non hanno il campo salvato e devono comportarsi
   // come le nuove.
+  _comandoManda(accendi, bt) {
+    const id = this._cfg.comando;
+    if (!id || !this._hass) return;
+    const dom = id.split(".")[0];
+    if (dom === "remote" || dom === "switch" || dom === "media_player" || dom === "light" || dom === "fan")
+      this._hass.callService(dom, accendi ? "turn_on" : "turn_off", { entity_id: id });
+    else if (dom === "button") this._hass.callService("button", "press", { entity_id: id });
+    else if (dom === "script") this._hass.callService("script", "turn_on", { entity_id: id });
+    else this._hass.callService("homeassistant", accendi ? "turn_on" : "turn_off", { entity_id: id });
+    if (navigator.vibrate) try { navigator.vibrate(12); } catch (e) {}
+    if (bt) { bt.classList.add("on"); setTimeout(() => bt.classList.remove("on"), 600); }
+  }
+
   _toggleChiesto(dopo) {
     if (this._clima()) { this._climaOnOff(dopo); return; }
     const fatto = () => { this._toggle(); if (dopo) dopo(); };
@@ -3836,7 +3849,17 @@ class MiniCard extends HTMLElement {
       // la corrente, che e un'altra cosa, e la scheda completa di Home Assistant.
       const conClima = !!this._clima();
       if (conClima && cfg.switch) actions.push(`<button class="mc-pill" data-act="presa"><ha-icon icon="mdi:power-plug-off"></ha-icon> Stacca la presa</button>`);
-      else if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle"><ha-icon icon="mdi:power"></ha-icon> ${on ? "Spegni" : "Accendi"}</button>`);
+      else if (cfg.switch) actions.push(`<button class="mc-pill${on ? " on" : ""}" data-act="toggle"><ha-icon icon="${cfg.comando ? (on ? "mdi:power-plug-off" : "mdi:power-plug") : "mdi:power"}"></ha-icon> ${cfg.comando ? (on ? "Stacca la presa" : "Accendi la presa") : on ? "Spegni" : "Accendi"}</button>`);
+      // COMANDO DELL'APPARECCHIO (18/11/26, Cristian: «presa TV e TV puoi unirle?»).
+      // La tessera resta quella della presa (stato vero e consumo); qui sotto i
+      // tasti dell'apparecchio, per esempio la TV col telecomando a infrarossi,
+      // che non dice se e accesa: per questo Accendi e Spegni sono due tasti.
+      // Con la presa spenta non servono a niente e non si mostrano.
+      if (cfg.comando && on) {
+        const cn = this._esc(cfg.comando_nome || "Apparecchio");
+        actions.push(`<button class="mc-pill" data-act="cmd_on"><ha-icon icon="mdi:power"></ha-icon> Accendi ${cn}</button>`);
+        actions.push(`<button class="mc-pill" data-act="cmd_off"><ha-icon icon="mdi:power-off"></ha-icon> Spegni ${cn}</button>`);
+      }
       if (this._priorityEntity()) actions.push(`<button class="mc-pill" data-act="info">⚙ ${conClima ? "Altri comandi" : "Informazioni"}</button>`);
       // IL LIBRETTO DELL'APPARECCHIO. Stava in una tessera a parte che
       // occupava mezza riga della stanza: qui e accanto ad Accendi e
@@ -4022,6 +4045,10 @@ class MiniCard extends HTMLElement {
       if (q('[data-act="presa"]')) q('[data-act="presa"]').onclick = () => this._staccaPresa(close);
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
+      ["cmd_on", "cmd_off"].forEach(k => {
+        const bt = q(`[data-act="${k}"]`);
+        if (bt) bt.onclick = () => this._comandoManda(k === "cmd_on", bt);
+      });
       if (q('[data-act="info"]')) q('[data-act="info"]').onclick = () => { close(); this._openMoreInfo(); };
       // Il libretto: un indirizzo interno a Home Assistant si apre nel
       // pannello, uno esterno nel browser.
