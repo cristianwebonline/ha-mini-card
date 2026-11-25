@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.66.0";
+const MC_VERSION = "1.67.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2416,6 +2416,30 @@ class MiniCard extends HTMLElement {
         font:inherit;font-size:13px;font-weight:800;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
       .mc-pill.on{background:linear-gradient(135deg,rgba(56,224,138,.28),rgba(56,224,138,.14));border-color:rgba(56,224,138,.5);color:var(--mc-c-ok,#8ff0b4)}
       .mc-pill-primary{background:linear-gradient(135deg,rgba(71,181,255,.3),rgba(71,181,255,.14));border-color:rgba(71,181,255,.5);color:#bfe6ff}
+      /* Gruppo di luci (luci: [...]): una riga per luce, tocco = accendi/spegni. */
+      .mc-gl{display:flex;flex-direction:column;gap:8px;margin:16px 0 6px}
+      .mc-gl-r{display:flex;align-items:center;gap:12px;width:100%;min-width:0;padding:11px 12px;border-radius:16px;
+        font:inherit;text-align:left;cursor:pointer;border:1px solid var(--mc-stroke);background:rgba(255,255,255,.06);color:var(--mc-ink)}
+      .mc-gl-r.on{background:linear-gradient(135deg,rgba(56,224,138,.2),rgba(56,224,138,.08));border-color:rgba(56,224,138,.45)}
+      .mc-gl-r.giu{opacity:.55}
+      .mc-gl-ic{width:38px;height:38px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
+        background:rgba(255,255,255,.08);color:var(--mc-muted)}
+      .mc-gl-ic ha-icon{--mdc-icon-size:22px}
+      .mc-gl-r.on .mc-gl-ic{background:rgba(255,200,80,.22);color:#ffc850}
+      .mc-gl-t{flex:1;min-width:0}
+      .mc-gl-t b{display:block;font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .mc-gl-t small{display:block;font-size:12px;color:var(--mc-muted);margin-top:1px}
+      .mc-gl-r.on .mc-gl-t small{color:var(--mc-c-ok,#8ff0b4)}
+      .mc-gl-sw{width:46px;height:28px;border-radius:14px;flex:0 0 auto;position:relative;background:rgba(255,255,255,.16);transition:background .2s}
+      .mc-gl-sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;
+        box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .2s}
+      .mc-gl-r.on .mc-gl-sw{background:#34c759}
+      .mc-gl-r.on .mc-gl-sw::after{left:21px}
+      .mc-gl-tutte{margin-top:4px}
+      .mc.chiaro .mc-gl-r{background:rgba(15,30,45,.055)}
+      .mc.chiaro .mc-gl-r.on{background:linear-gradient(135deg,rgba(52,199,89,.2),rgba(52,199,89,.08))}
+      .mc.chiaro .mc-gl-r.on .mc-gl-t small{color:#1f8a3e}
+      .mc.chiaro .mc-gl-sw{background:rgba(15,30,45,.18)}
       .mc-chips{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin:4px 0 20px}
       .mc-chip{background:rgba(255,255,255,.05);border:1px solid var(--mc-stroke);border-radius:20px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--mc-ink)}
       .mc-tabs{display:flex;gap:8px;margin-bottom:12px}
@@ -2717,6 +2741,74 @@ class MiniCard extends HTMLElement {
       ${eff.length ? `<div class="mc-lu-gruppo"><span>Effetti</span></div>
         <div class="mc-lu-eff">${eff.map(e =>
           `<button type="button" data-lueff="${this._esc(e)}" class="${effAtt === e ? "sel" : ""}">${this._esc(e)}</button>`).join("")}</div>` : ""}`;
+  }
+
+  // GRUPPO DI LUCI (25/11/26, Cristian: «un'unica icona per le luci sala che si
+  // apre con un popup e si spegne quella accesa; deve dire quante sono accese e
+  // il consumo»). Chiave luci: [{entity, nome?, power?}]. La tessera dice quante
+  // sono accese e la somma dei watt (solo delle luci che hanno un misuratore);
+  // il foglio ha una riga per luce, il tocco la accende o la spegne subito
+  // (senza conferma: e una luce), e «Spegni tutte» quando ce n'e piu d'una.
+  _luciGruppo() {
+    const l = this._cfg.luci;
+    if (!Array.isArray(l) || !l.length || !this._hass) return null;
+    return l.filter(x => x && x.entity).map(x => {
+      const st = this._hass.states[x.entity];
+      const giu = !st || ["unavailable", "unknown"].includes(st.state);
+      const on = !giu && this._acceso(st);
+      const w = x.power ? this._num(x.power) : null;
+      return { entity: x.entity, power: x.power || "", st, giu, on, w: on && w != null ? w : 0, wLetto: w,
+        nome: x.nome || (st && st.attributes.friendly_name) || x.entity };
+    });
+  }
+  _gruppoHTML() {
+    const lg = this._luciGruppo() || [];
+    const accese = lg.filter(x => x.on);
+    const righe = lg.map((x, i) => {
+      const sotto = x.giu ? "Non risponde"
+        : x.on ? "Accesa" + (x.power && x.wLetto != null ? ` · ${Math.round(x.wLetto)} W` : "")
+        : "Spenta";
+      return `<button type="button" class="mc-gl-r${x.on ? " on" : ""}${x.giu ? " giu" : ""}" data-gl="${i}">
+        <span class="mc-gl-ic"><ha-icon icon="${x.on ? "mdi:lightbulb-on" : "mdi:lightbulb-outline"}"></ha-icon></span>
+        <span class="mc-gl-t"><b>${this._esc(x.nome)}</b><small>${this._esc(sotto)}</small></span>
+        <span class="mc-gl-sw"></span></button>`;
+    }).join("");
+    const tutte = accese.length > 1
+      ? `<button type="button" class="mc-pill mc-gl-tutte" data-gltutte><ha-icon icon="mdi:lightbulb-group-off-outline"></ha-icon> Spegni tutte (${accese.length})</button>` : "";
+    return `<div class="mc-gl">${righe}${tutte}</div>`;
+  }
+  _gruppoRidisegna() {
+    const box = this.querySelector(".mc-scrim .mc-gruppo");
+    if (!box) return;
+    // Per un attimo dopo il tocco vale quello che si e chiesto: la luce vera
+    // risponde dopo, e senza questo l'interruttore tornerebbe indietro e poi avanti.
+    if (this._glTocco && Date.now() - this._glTocco < 1500) return;
+    const html = this._gruppoHTML();
+    if (html !== box._html) { box._html = html; box.innerHTML = html; }
+    const stato = this.querySelector(".mc-scrim .mc-hero-state");
+    if (stato) stato.textContent = this._stateText(this._isOn());
+  }
+  _gruppoTocco(e) {
+    const b = e.target.closest("button");
+    if (!b || !this._hass) return;
+    const lg = this._luciGruppo() || [];
+    const manda = (x, accendi) => {
+      const dom = x.entity.split(".")[0];
+      const d = ["light", "switch", "input_boolean", "fan"].includes(dom) ? dom : "homeassistant";
+      return this._hass.callService(d, accendi ? "turn_on" : "turn_off", { entity_id: x.entity });
+    };
+    if (navigator.vibrate) try { navigator.vibrate(10); } catch (er) {}
+    if (b.hasAttribute("data-gltutte")) {
+      lg.filter(x => x.on).forEach(x => manda(x, false));
+      b.disabled = true;
+      return;
+    }
+    const x = lg[+b.dataset.gl];
+    if (!x || x.giu) return;
+    manda(x, !x.on);
+    b.classList.toggle("on", !x.on);
+    this._glTocco = Date.now();
+    setTimeout(() => { this._glTocco = 0; this._gruppoRidisegna(); }, 1600);
   }
 
   _luceRidisegna() {
@@ -3095,6 +3187,8 @@ class MiniCard extends HTMLElement {
   }
 
   _toggleChiesto(dopo) {
+    // Gruppo di luci: la pillola apre l'elenco, dove si sceglie QUALE spegnere.
+    if (this._luciGruppo()) { this._openImmersive(); return; }
     if (this._clima()) { this._climaOnOff(dopo); return; }
     if (this._comandoPrincipale()) {
       const acc = this._isOn();
@@ -3423,6 +3517,8 @@ class MiniCard extends HTMLElement {
   _comandoPrincipale() { return !!(this._cfg.comando && this._cfg.comando_principale && this._cfg.switch); }
   _isOn() {
     const cfg = this._cfg;
+    const lg = this._luciGruppo();
+    if (lg) return lg.some(x => x.on);
     const cl = this._clima();
     if (cl) return !["off", "unavailable", "unknown"].includes(cl.state);
     if (this._comandoPrincipale()) {
@@ -3591,6 +3687,8 @@ class MiniCard extends HTMLElement {
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
     const soglia = parseFloat(cfg.soglia) || 10;
+    const lg = this._luciGruppo();
+    if (lg) return lg.some(x => x.on) ? "lavora" : "attesa";
     // UNA STANZA NON E' UN APPARECCHIO. Non ha una presa da staccare, quindi
     // finiva sempre in "staccata" e l'icona non si animava MAI: le stanze
     // restavano disegni fermi. Una stanza esiste sempre, quindi e sempre viva.
@@ -3648,6 +3746,11 @@ class MiniCard extends HTMLElement {
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     if (cfg.mode === "room") return cfg.path ? "Apri la vista →" : "";
+    const lg = this._luciGruppo();
+    if (lg) {
+      const n = lg.filter(x => x.on).length;
+      return n ? `${n} di ${lg.length} ${n === 1 ? "accesa" : "accese"}` : "Tutte spente";
+    }
     const cl = this._clima();
     if (cl) {
       if (cl.state === "unavailable" || cl.state === "unknown") return "Non risponde";
@@ -3771,6 +3874,7 @@ class MiniCard extends HTMLElement {
     this._ctimerSync();
     this._climaRidisegna();
     this._luceRidisegna();
+    this._gruppoRidisegna();
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
@@ -3810,10 +3914,19 @@ class MiniCard extends HTMLElement {
       const q = Math.max(0.25, Math.min(1, (p - trop) / (trop * 0.5) * 0.75 + 0.25));
       this._el.style.setProperty("--mc-troppo", q.toFixed(2));
     } else this._el.style.removeProperty("--mc-troppo");
-    this._el.querySelector('[data-role="state"]').textContent = this._stateText(on);
+    // Sulla tessera di un gruppo la pillola dice gia quante sono accese: sotto
+    // basta di quante luci si parla.
+    this._el.querySelector('[data-role="state"]').textContent = this._luciGruppo()
+      ? `su ${this._luciGruppo().length} luci` : this._stateText(on);
 
     const badge = this._el.querySelector('[data-role="badge"]');
-    if (sw) {
+    const lg = this._luciGruppo();
+    if (lg) {
+      const n = lg.filter(x => x.on).length;
+      badge.hidden = false;
+      badge.dataset.on = n ? "1" : "0";
+      badge.querySelector(".lbl").textContent = n ? `${n} ${n === 1 ? "accesa" : "accese"}` : "Spente";
+    } else if (sw) {
       badge.hidden = false;
       badge.dataset.on = on ? "1" : "0";
       // Anche qui: "Accesa" da solo sembrava riferito all'apparecchio.
@@ -3824,7 +3937,10 @@ class MiniCard extends HTMLElement {
     } else badge.hidden = true;
 
     const metricWrap = this._el.querySelector('[data-role="metricwrap"]');
-    if (cfg.power) {
+    if (lg && lg.some(x => x.power)) {
+      metricWrap.hidden = false;
+      this._el.querySelector('[data-role="power"]').textContent = Math.round(lg.reduce((a, x) => a + (x.w || 0), 0));
+    } else if (cfg.power) {
       metricWrap.hidden = false;
       this._el.querySelector('[data-role="power"]').textContent = p != null ? Math.round(p) : "–";
     } else metricWrap.hidden = true;
@@ -3944,6 +4060,7 @@ class MiniCard extends HTMLElement {
         ${this._clima() ? `<div class="mc-clima">${this._climaHTML()}</div>
           <div class="mc-cl-timer">${this._ctimerHTML()}</div>` : ""}
         ${this._luce() ? `<div class="mc-luce">${this._luceHTML()}</div>` : ""}
+        ${this._luciGruppo() ? `<div class="mc-gruppo">${this._gruppoHTML()}</div>` : ""}
         ${actions.length ? `<div class="mc-actions-row">${actions.join("")}</div>` : ""}
         ${tastiHTML.length ? `<div class="mc-tasti-grid">${tastiHTML.join("")}</div>` : ""}
         ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
@@ -4106,6 +4223,7 @@ class MiniCard extends HTMLElement {
         lu.oninput = e => this._luceScorre(e, false);
         lu.onchange = e => this._luceScorre(e, true);
       }
+      if (q(".mc-gruppo")) q(".mc-gruppo").onclick = e => this._gruppoTocco(e);
       if (q('[data-act="presa"]')) q('[data-act="presa"]').onclick = () => this._staccaPresa(close);
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
