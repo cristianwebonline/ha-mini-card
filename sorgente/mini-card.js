@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.69.0";
+const MC_VERSION = "1.69.1";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2803,8 +2803,11 @@ class MiniCard extends HTMLElement {
     const righe = [];
     if (this._cfg.movimento) righe.push(r("Movimento", f.movGiu ? "non risponde" : f.mov ? "adesso" : "nessuno adesso"));
     if (bat != null) righe.push(r("Batteria", Math.round(bat) + "%"));
-    const img = f.pic && !f.giu
-      ? `<img class="mc-foto-img" alt="Ultima foto" src="${this._esc(f.pic)}">`
+    // senza data (stato «unknown») HA non ha ancora nessuna foto: il link c'e
+    // ma risponde errore, e il browser mostrerebbe l'immagine rotta.
+    const img = f.pic && !f.giu && f.quando
+      ? `<img class="mc-foto-img" alt="Ultima foto" src="${this._esc(f.pic)}"
+          onerror="this.outerHTML='<div class=&quot;mc-foto-vuota&quot;>Foto non disponibile</div>'">`
       : `<div class="mc-foto-vuota">${f.giu ? "Foto non disponibile" : "Ancora nessuna foto"}</div>`;
     return `<div class="mc-foto-box" data-fotobig>${img}</div>
       <div class="mc-foto-cap">${f.quando ? "Foto dell'ultimo movimento, " + this._esc(this._fotoQuando(f)) : "La foto arriva al primo movimento"}</div>
