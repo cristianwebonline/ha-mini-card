@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.67.0";
+const MC_VERSION = "1.68.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -2434,6 +2434,20 @@ class MiniCard extends HTMLElement {
       .mc-gl-sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;
         box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .2s}
       .mc-gl-r.on .mc-gl-sw{background:#34c759}
+      .mc-gl-r{padding:0;cursor:default}
+      .mc-gl-a{display:flex;align-items:center;gap:12px;flex:1;min-width:0;padding:11px 0 11px 12px;background:none;border:0;
+        font:inherit;color:inherit;text-align:left;cursor:pointer}
+      .mc-gl-a .mc-gl-fr{--mdc-icon-size:18px;color:var(--mc-muted);flex:0 0 auto;transition:transform .2s}
+      .mc-gl-r.aperta .mc-gl-fr{transform:rotate(180deg)}
+      button.mc-gl-sw{border:0;padding:0;margin:0 12px 0 4px;cursor:pointer}
+      .mc-gl-r.aperta{border-bottom-left-radius:6px;border-bottom-right-radius:6px}
+      .mc-gl-info{margin:-4px 0 2px;padding:12px 14px;border-radius:6px 6px 16px 16px;border:1px solid var(--mc-stroke);border-top:0;
+        background:rgba(255,255,255,.04);display:flex;flex-direction:column;gap:7px;font-size:13px}
+      .mc-gl-info .gi{display:flex;justify-content:space-between;gap:10px;min-width:0}
+      .mc-gl-info .gi span{color:var(--mc-muted)}
+      .mc-gl-info .gi b{font-weight:800;text-align:right}
+      .mc-gl-info .mc-pill{align-self:flex-start;margin-top:4px}
+      .mc.chiaro .mc-gl-info{background:rgba(15,30,45,.035)}
       .mc-gl-r.on .mc-gl-sw::after{left:21px}
       .mc-gl-tutte{margin-top:4px}
       .mc.chiaro .mc-gl-r{background:rgba(15,30,45,.055)}
@@ -2768,14 +2782,110 @@ class MiniCard extends HTMLElement {
       const sotto = x.giu ? "Non risponde"
         : x.on ? "Accesa" + (x.power && x.wLetto != null ? ` · ${Math.round(x.wLetto)} W` : "")
         : "Spenta";
-      return `<button type="button" class="mc-gl-r${x.on ? " on" : ""}${x.giu ? " giu" : ""}" data-gl="${i}">
+      // 26/11/26, Cristian: «se clicco su una luce commuta subito, vorrei vedere
+      // anche le informazioni». Ora il nome apre le informazioni sotto la riga,
+      // l'interruttore a destra accende e spegne.
+      const aperta = this._glAperta === x.entity;
+      return `<div class="mc-gl-r${x.on ? " on" : ""}${x.giu ? " giu" : ""}${aperta ? " aperta" : ""}">
+        <button type="button" class="mc-gl-a" data-glinfo="${i}">
         <span class="mc-gl-ic"><ha-icon icon="${x.on ? "mdi:lightbulb-on" : "mdi:lightbulb-outline"}"></ha-icon></span>
         <span class="mc-gl-t"><b>${this._esc(x.nome)}</b><small>${this._esc(sotto)}</small></span>
-        <span class="mc-gl-sw"></span></button>`;
+        <ha-icon class="mc-gl-fr" icon="mdi:chevron-down"></ha-icon></button>
+        <button type="button" class="mc-gl-sw" data-gl="${i}" aria-label="${x.on ? "Spegni" : "Accendi"} ${this._esc(x.nome)}"></button></div>
+        ${aperta ? this._glInfoHTML(x, i) : ""}`;
     }).join("");
     const tutte = accese.length > 1
       ? `<button type="button" class="mc-pill mc-gl-tutte" data-gltutte><ha-icon icon="mdi:lightbulb-group-off-outline"></ha-icon> Spegni tutte (${accese.length})</button>` : "";
     return `<div class="mc-gl">${righe}${tutte}</div>`;
+  }
+  // Le informazioni di una luce del gruppo: da quando e accesa o spenta, il
+  // consumo adesso, e quante volte si e accesa oggi e per quanto tempo in tutto
+  // (dallo storico di HA, chiesto una volta al minuto al massimo).
+  _glInfoHTML(x, i) {
+    const r = (a, b) => `<div class="gi"><span>${a}</span><b>${b}</b></div>`;
+    const out = [];
+    const st = x.st;
+    if (x.giu) out.push(r("Stato", "Non risponde"));
+    else if (st && st.last_changed) {
+      const t = new Date(st.last_changed).getTime();
+      const fa = Date.now() - t;
+      const oggi = new Date().toDateString() === new Date(t).toDateString();
+      const quando = oggi ? "dalle " + this._ora(t)
+        : "dal " + new Date(t).toLocaleDateString("it-IT", { day: "numeric", month: "short" }) + " " + this._ora(t);
+      out.push(r(x.on ? "Accesa" : "Spenta", `${quando} (${fa < 60000 ? "da poco" : "da " + this._durata(fa)})`));
+    }
+    if (x.power) out.push(r("Consumo adesso", x.wLetto == null ? "non si legge" : Math.round(x.on ? x.wLetto : 0) + " W"));
+    if (st && x.on && st.attributes && st.attributes.brightness != null)
+      out.push(r("Luminosità", Math.round(st.attributes.brightness / 2.55) + "%"));
+    const s = (this._glSt || {})[x.entity];
+    if (!s || s.carico) out.push(r("Oggi", "leggo…"));
+    else if (s.errore) out.push(r("Oggi", "storico non disponibile"));
+    else {
+      const ms = s.periodi.reduce((a, p) => a + p.a - p.da, 0);
+      out.push(r("Oggi", s.periodi.length
+        ? `${s.periodi.length === 1 ? "1 accensione" : s.periodi.length + " accensioni"} · ${ms < 60000 ? "meno di 1 min" : this._durata(ms)}`
+        : "mai accesa"));
+      if (x.power && x.wLetto != null && s.periodi.length) {
+        // con un misuratore fisso (es. 20 W) basta tempo x watt; e una stima
+        const wh = s.wh != null ? s.wh : null;
+        if (wh != null) out.push(r("Consumo di oggi", wh < 1 ? "meno di 1 Wh" : wh < 1000 ? Math.round(wh) + " Wh" : (wh / 1000).toFixed(2).replace(".", ",") + " kWh"));
+      }
+      if (s.periodi.length) {
+        const u = s.periodi[s.periodi.length - 1];
+        if (!(x.on && u.aperto)) out.push(r("Ultima volta", `${this._ora(u.da)} per ${u.a - u.da < 60000 ? "meno di 1 min" : this._durata(u.a - u.da)}`));
+      }
+    }
+    const dom = x.entity.split(".")[0];
+    const regola = dom === "light" && !x.giu
+      ? `<button type="button" class="mc-pill" data-glregola="${i}"><ha-icon icon="mdi:tune-variant"></ha-icon> Colori e regolazioni</button>` : "";
+    return `<div class="mc-gl-info">${out.join("")}${regola}</div>`;
+  }
+  async _glStorico(id) {
+    if (!this._hass) return;
+    this._glSt = this._glSt || {};
+    const vec = this._glSt[id];
+    if (vec && (vec.carico || Date.now() - vec.quando < 60000)) return;
+    this._glSt[id] = { carico: true, quando: Date.now() };
+    const inizio = new Date(); inizio.setHours(0, 0, 0, 0);
+    const ora = Date.now();
+    const cfgL = (this._cfg.luci || []).find(l => l && l.entity === id) || {};
+    const ids = [id].concat(cfgL.power ? [cfgL.power] : []);
+    try {
+      const res = await this._hass.callWS({
+        type: "history/history_during_period", start_time: inizio.toISOString(), end_time: new Date(ora).toISOString(),
+        entity_ids: ids, minimal_response: true, no_attributes: true,
+      });
+      const righe = (res && res[id]) || [];
+      const periodi = [];
+      let da = null;
+      righe.forEach(h => {
+        const t = Math.max(inizio.getTime(), (h.lu || h.lc || 0) * 1000);
+        const acceso = h.s === "on";
+        if (acceso && da == null) da = t;
+        else if (!acceso && da != null) { periodi.push({ da, a: t }); da = null; }
+      });
+      if (da != null) periodi.push({ da, a: ora, aperto: true });
+      // storico vuoto (niente cambi registrati oggi) ma la luce e accesa adesso
+      const adesso = this._hass.states[id];
+      if (!righe.length && adesso && adesso.state === "on")
+        periodi.push({ da: Math.max(inizio.getTime(), new Date(adesso.last_changed).getTime()), a: ora, aperto: true });
+      let wh = null;
+      const pr = cfgL.power && res && res[cfgL.power];
+      if (pr && pr.length) {
+        wh = 0;
+        for (let k = 0; k < pr.length; k++) {
+          const t0 = Math.max(inizio.getTime(), (pr[k].lu || pr[k].lc || 0) * 1000);
+          const t1 = k + 1 < pr.length ? (pr[k + 1].lu || pr[k + 1].lc) * 1000 : ora;
+          const w = parseFloat(pr[k].s);
+          if (isFinite(w) && t1 > t0) wh += w * (t1 - t0) / 3600000;
+        }
+      }
+      this._glSt[id] = { periodi, wh, quando: Date.now() };
+    } catch (e) {
+      this._glSt[id] = { errore: true, quando: Date.now() };
+    }
+    this._glTocco = 0;
+    this._gruppoRidisegna();
   }
   _gruppoRidisegna() {
     const box = this.querySelector(".mc-scrim .mc-gruppo");
@@ -2803,10 +2913,32 @@ class MiniCard extends HTMLElement {
       b.disabled = true;
       return;
     }
+    if (b.hasAttribute("data-glinfo")) {
+      const y = lg[+b.dataset.glinfo];
+      if (!y) return;
+      this._glAperta = this._glAperta === y.entity ? null : y.entity;
+      if (this._glAperta) this._glStorico(y.entity);
+      this._glTocco = 0;
+      this._gruppoRidisegna();
+      return;
+    }
+    if (b.hasAttribute("data-glregola")) {
+      const y = lg[+b.dataset.glregola];
+      if (!y) return;
+      const chiudi = this.querySelector('.mc-scrim [data-act="close"]');
+      if (chiudi) chiudi.click();
+      this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: y.entity }, bubbles: true, composed: true }));
+      return;
+    }
     const x = lg[+b.dataset.gl];
     if (!x || x.giu) return;
     manda(x, !x.on);
-    b.classList.toggle("on", !x.on);
+    const riga = b.closest(".mc-gl-r");
+    if (riga) riga.classList.toggle("on", !x.on);
+    if (this._glSt && this._glSt[x.entity]) {
+      delete this._glSt[x.entity];
+      if (this._glAperta === x.entity) setTimeout(() => this._glStorico(x.entity), 2500);
+    }
     this._glTocco = Date.now();
     setTimeout(() => { this._glTocco = 0; this._gruppoRidisegna(); }, 1600);
   }
