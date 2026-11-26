@@ -5,7 +5,7 @@
  *  Scegli icona, sensori (potenza/energia/temperatura/umidità) e presa/luce
  *  da accendere: il resto lo fa la card. Gira nel browser, nessun server.
  */
-const MC_VERSION = "1.68.0";
+const MC_VERSION = "1.69.0";
 const MC_CLIMA_MODI = {
   cool: ["Fresco", "mdi:snowflake"], heat: ["Caldo", "mdi:fire"], heat_cool: ["Automatico", "mdi:autorenew"],
   auto: ["Automatico", "mdi:autorenew"], dry: ["Deumidifica", "mdi:water-percent"], fan_only: ["Ventola", "mdi:fan"],
@@ -932,6 +932,7 @@ function stopSwipeNavHijack(el) {
 class MiniCard extends HTMLElement {
   setConfig(config) {
     this._cfg = Object.assign({}, MC_DEFAULTS, config || {});
+    this._batteriaPw = "";
     this._built = false;
     this._hist = null;
     this._histLoading = false;
@@ -2448,6 +2449,13 @@ class MiniCard extends HTMLElement {
       .mc-gl-info .gi b{font-weight:800;text-align:right}
       .mc-gl-info .mc-pill{align-self:flex-start;margin-top:4px}
       .mc.chiaro .mc-gl-info{background:rgba(15,30,45,.035)}
+      .mc-foto{margin:16px 0 6px;display:flex;flex-direction:column;gap:8px}
+      .mc-foto-box{width:100%;aspect-ratio:16/9;border-radius:16px;overflow:hidden;background:rgba(0,0,0,.35);
+        border:1px solid var(--mc-stroke);cursor:zoom-in;display:grid;place-items:center}
+      .mc-foto-img{width:100%;height:100%;object-fit:cover;display:block}
+      .mc-foto-vuota{color:var(--mc-muted);font-size:13px;font-weight:700}
+      .mc-foto-cap{font-size:12px;color:var(--mc-muted);text-align:center}
+      .mc-foto-info{margin:0;border-top:1px solid var(--mc-stroke);border-radius:16px}
       .mc-gl-r.on .mc-gl-sw::after{left:21px}
       .mc-gl-tutte{margin-top:4px}
       .mc.chiaro .mc-gl-r{background:rgba(15,30,45,.055)}
@@ -2763,6 +2771,61 @@ class MiniCard extends HTMLElement {
   // sono accese e la somma dei watt (solo delle luci che hanno un misuratore);
   // il foglio ha una riga per luce, il tocco la accende o la spegne subito
   // (senza conferma: e una luce), e «Spegni tutte» quando ce n'e piu d'una.
+  // TELECAMERA A BATTERIA (26/11/26, Cristian: la CB3 del gazebo in Faber Home).
+  // Le EZVIZ a batteria non danno la diretta a HA (niente RTSP), ma il cloud
+  // manda la foto di ogni movimento (entita image.*). Chiavi: foto (image.*),
+  // movimento (binary_sensor), power = la batteria in % (la mostra da sola).
+  _foto() {
+    const id = this._cfg.foto;
+    if (!id || !this._hass) return null;
+    const st = this._hass.states[id];
+    const mv = this._cfg.movimento ? this._hass.states[this._cfg.movimento] : null;
+    let quando = st && Date.parse(st.state);
+    if (!isFinite(quando)) quando = null;
+    return { id, st, pic: st && st.attributes && st.attributes.entity_picture,
+      giu: !st || st.state === "unavailable", quando, mov: !!(mv && mv.state === "on"),
+      movGiu: !!(this._cfg.movimento && (!mv || mv.state === "unavailable")) };
+  }
+  _fotoQuando(f) {
+    if (!f.quando) return "";
+    const d = new Date(f.quando), oggi = new Date();
+    const ieri = new Date(); ieri.setDate(oggi.getDate() - 1);
+    const g = d.toDateString() === oggi.toDateString() ? "oggi"
+      : d.toDateString() === ieri.toDateString() ? "ieri"
+      : d.toLocaleDateString("it-IT", { day: "numeric", month: "short" });
+    return `${g} alle ${this._ora(f.quando)}`;
+  }
+  _fotoHTML() {
+    const f = this._foto();
+    if (!f) return "";
+    const r = (a, b) => `<div class="gi"><span>${a}</span><b>${b}</b></div>`;
+    const bat = this._batteriaId ? this._num(this._batteriaId) : null;
+    const righe = [];
+    if (this._cfg.movimento) righe.push(r("Movimento", f.movGiu ? "non risponde" : f.mov ? "adesso" : "nessuno adesso"));
+    if (bat != null) righe.push(r("Batteria", Math.round(bat) + "%"));
+    const img = f.pic && !f.giu
+      ? `<img class="mc-foto-img" alt="Ultima foto" src="${this._esc(f.pic)}">`
+      : `<div class="mc-foto-vuota">${f.giu ? "Foto non disponibile" : "Ancora nessuna foto"}</div>`;
+    return `<div class="mc-foto-box" data-fotobig>${img}</div>
+      <div class="mc-foto-cap">${f.quando ? "Foto dell'ultimo movimento, " + this._esc(this._fotoQuando(f)) : "La foto arriva al primo movimento"}</div>
+      <div class="mc-gl-info mc-foto-info">${righe.join("")}
+        <button type="button" class="mc-pill" data-fotobig><ha-icon icon="mdi:fullscreen"></ha-icon> Apri grande</button></div>`;
+  }
+  _fotoRidisegna() {
+    const box = this.querySelector(".mc-scrim .mc-foto");
+    if (!box) return;
+    const f = this._foto();
+    const firma = f ? [f.pic, f.giu, f.quando, f.mov, f.movGiu, this._batteriaId && this._num(this._batteriaId)].join("|") : "";
+    if (box._firma === firma) return;
+    box._firma = firma;
+    box.innerHTML = this._fotoHTML();
+  }
+  _fotoTocco(e) {
+    if (!e.target.closest("[data-fotobig]")) return;
+    const chiudi = this.querySelector('.mc-scrim [data-act="close"]');
+    if (chiudi) chiudi.click();
+    this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: this._cfg.foto }, bubbles: true, composed: true }));
+  }
   _luciGruppo() {
     const l = this._cfg.luci;
     if (!Array.isArray(l) || !l.length || !this._hass) return null;
@@ -3321,6 +3384,7 @@ class MiniCard extends HTMLElement {
   _toggleChiesto(dopo) {
     // Gruppo di luci: la pillola apre l'elenco, dove si sceglie QUALE spegnere.
     if (this._luciGruppo()) { this._openImmersive(); return; }
+    if (this._foto() && !this._cfg.switch) { this._openImmersive(); return; }
     if (this._clima()) { this._climaOnOff(dopo); return; }
     if (this._comandoPrincipale()) {
       const acc = this._isOn();
@@ -3651,6 +3715,8 @@ class MiniCard extends HTMLElement {
     const cfg = this._cfg;
     const lg = this._luciGruppo();
     if (lg) return lg.some(x => x.on);
+    const fo = !cfg.switch && this._foto();
+    if (fo) return fo.mov;
     const cl = this._clima();
     if (cl) return !["off", "unavailable", "unknown"].includes(cl.state);
     if (this._comandoPrincipale()) {
@@ -3775,11 +3841,14 @@ class MiniCard extends HTMLElement {
   _separaBatteria() {
     const cfg = this._cfg;
     this._batteriaId = "";
+    // 26/11/26: gira a ogni aggiornamento, e dal secondo giro cfg.power era gia
+    // stato svuotato: la batteria spariva. Si ricorda quella spostata.
+    if (!cfg.power && this._batteriaPw) this._batteriaId = this._batteriaPw;
     if (cfg.power) {
       const s = this._hass && this._hass.states[cfg.power];
       const a = (s && s.attributes) || {};
       if (s && (a.device_class === "battery" || a.unit_of_measurement === "%")) {
-        this._batteriaId = cfg.power;
+        this._batteriaId = this._batteriaPw = cfg.power;
         cfg.power = "";   // solo nella copia che gira: la configurazione salvata non si tocca
       }
     }
@@ -3821,6 +3890,8 @@ class MiniCard extends HTMLElement {
     const soglia = parseFloat(cfg.soglia) || 10;
     const lg = this._luciGruppo();
     if (lg) return lg.some(x => x.on) ? "lavora" : "attesa";
+    const fo = !cfg.switch && this._foto();
+    if (fo) return fo.giu && fo.movGiu ? "staccata" : fo.mov ? "lavora" : "attesa";
     // UNA STANZA NON E' UN APPARECCHIO. Non ha una presa da staccare, quindi
     // finiva sempre in "staccata" e l'icona non si animava MAI: le stanze
     // restavano disegni fermi. Una stanza esiste sempre, quindi e sempre viva.
@@ -3883,6 +3954,8 @@ class MiniCard extends HTMLElement {
       const n = lg.filter(x => x.on).length;
       return n ? `${n} di ${lg.length} ${n === 1 ? "accesa" : "accese"}` : "Tutte spente";
     }
+    const fo = !cfg.switch && this._foto();
+    if (fo) return fo.mov ? "Movimento adesso" : fo.quando ? "Ultimo movimento " + this._fotoQuando(fo) : "Nessun movimento";
     const cl = this._clima();
     if (cl) {
       if (cl.state === "unavailable" || cl.state === "unknown") return "Non risponde";
@@ -4007,6 +4080,7 @@ class MiniCard extends HTMLElement {
     this._climaRidisegna();
     this._luceRidisegna();
     this._gruppoRidisegna();
+    this._fotoRidisegna();
     const cfg = this._cfg;
     const sw = cfg.switch && this._hass.states[cfg.switch];
     const p = this._num(cfg.power);
@@ -4058,6 +4132,11 @@ class MiniCard extends HTMLElement {
       badge.hidden = false;
       badge.dataset.on = n ? "1" : "0";
       badge.querySelector(".lbl").textContent = n ? `${n} ${n === 1 ? "accesa" : "accese"}` : "Spente";
+    } else if (!sw && this._foto()) {
+      const fo = this._foto();
+      badge.hidden = false;
+      badge.dataset.on = fo.mov ? "1" : "0";
+      badge.querySelector(".lbl").textContent = fo.mov ? "Movimento" : "Foto";
     } else if (sw) {
       badge.hidden = false;
       badge.dataset.on = on ? "1" : "0";
@@ -4193,6 +4272,7 @@ class MiniCard extends HTMLElement {
           <div class="mc-cl-timer">${this._ctimerHTML()}</div>` : ""}
         ${this._luce() ? `<div class="mc-luce">${this._luceHTML()}</div>` : ""}
         ${this._luciGruppo() ? `<div class="mc-gruppo">${this._gruppoHTML()}</div>` : ""}
+        ${this._foto() ? `<div class="mc-foto">${this._fotoHTML()}</div>` : ""}
         ${actions.length ? `<div class="mc-actions-row">${actions.join("")}</div>` : ""}
         ${tastiHTML.length ? `<div class="mc-tasti-grid">${tastiHTML.join("")}</div>` : ""}
         ${chips ? `<div class="mc-chips">${chips}</div>` : ""}`;
@@ -4356,6 +4436,7 @@ class MiniCard extends HTMLElement {
         lu.onchange = e => this._luceScorre(e, true);
       }
       if (q(".mc-gruppo")) q(".mc-gruppo").onclick = e => this._gruppoTocco(e);
+      if (q(".mc-foto")) q(".mc-foto").onclick = e => this._fotoTocco(e);
       if (q('[data-act="presa"]')) q('[data-act="presa"]').onclick = () => this._staccaPresa(close);
       if (q('[data-act="toggle"]')) q('[data-act="toggle"]').onclick = () =>
         this._toggleChiesto(() => setTimeout(render, 900));
